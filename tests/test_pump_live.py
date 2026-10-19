@@ -142,6 +142,26 @@ class PumpTests(unittest.TestCase):
         executor.trade.assert_not_called()
         self.assertFalse(json.loads(output.call_args.args[0])['trade_submitted'])
 
+    def test_diagnostics_identify_stage_and_hide_rpc_credentials(self):
+        import urllib.error
+        secret='must-not-be-printed'
+        exc=urllib.error.HTTPError('https://rpc.example/'+secret,429,secret,None,None)
+        result=pump_live.check_failure('Solana network verification',exc)
+        self.assertIn('Solana network verification',result)
+        self.assertIn('429',result)
+        self.assertNotIn(secret,result)
+        self.assertNotIn(secret,pump_live.check_failure('wallet loading',ValueError(secret)))
+
+    def test_read_only_failure_identifies_actual_failing_step(self):
+        executor=Mock()
+        executor.rpc.return_value=pump_live.MAINNET
+        with patch.object(sys,'argv',['pump_live.py','--check']), patch('pump_live.PumpExecutor',return_value=executor), patch('pump_live.sol_usd',side_effect=RuntimeError('private provider detail')):
+            with self.assertRaises(SystemExit) as caught:
+                pump_live.main()
+        self.assertIn('SOL/USD reference feed',str(caught.exception))
+        self.assertNotIn('private provider detail',str(caught.exception))
+        executor.trade.assert_not_called()
+
     def test_autonomous_cycle_persists_actual_fill_and_live_callout(self):
         import argparse
         import callouts

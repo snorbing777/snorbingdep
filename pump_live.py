@@ -6,6 +6,7 @@ import json
 import os
 import time
 import urllib.request
+import urllib.error
 from pathlib import Path
 
 import bot
@@ -302,6 +303,33 @@ def publish(path, state, candidates, config, events, error=None):
     bot.publish(path.with_suffix(".dashboard.json"), report, state, config | dict(daily_loss_fraction=.15))
 
 
+def check_failure(stage, exc):
+    # Do not print exception URLs/messages: RPC URLs can contain API credentials.
+    if isinstance(exc, ExecutionUncertain):
+        reason = "A pending trade journal exists. Reconcile it on-chain; do not delete it blindly."
+    elif isinstance(exc, ImportError):
+        reason = "A Python dependency is missing. Run Set Up Mac.command."
+    elif stage == "wallet loading":
+        safe_messages = {"Wallet must be a regular local file", "Keep the wallet outside the project folder", "Wallet file must have permissions 0600"}
+        reason = str(exc) if str(exc) in safe_messages else "The wallet file is missing, unreadable or invalid."
+        reason += " Run wallet_setup.py --address to inspect setup; never print the wallet file."
+    elif isinstance(exc, urllib.error.HTTPError):
+        reason = f"The service returned HTTP {exc.code}."
+        if exc.code == 429:
+            reason += " Rate limit reached; wait or configure a dedicated HTTPS mainnet RPC if this is an RPC step."
+        elif exc.code in (401, 403):
+            reason += " Access was denied; check the service credentials and network restrictions."
+    elif isinstance(exc, (urllib.error.URLError, TimeoutError, OSError)):
+        reason = "Network/TLS connection failed or timed out. Check connectivity and the configured service."
+    elif stage == "Solana network verification":
+        reason = "The RPC returned an error, an unexpected response or the wrong network. Use Solana mainnet."
+    elif stage == "SOL/USD reference feed":
+        reason = "The price feed failed or returned no qualifying liquid SOL/USD market."
+    else:
+        reason = "The RPC could not return a valid wallet balance."
+    return f"Read-only check failed at {stage}: {reason} No trade was submitted."
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--wallet", type=Path, default=DEFAULT_WALLET)
@@ -309,11 +337,15 @@ def main():
     parser.add_argument("--check", action="store_true", help="Check wallet/RPC/reference price without building or submitting a trade")
     args = parser.parse_args()
     if args.check:
+        stage = "wallet loading"
         try:
             executor = PumpExecutor(args.wallet, Path(".local/pump-pending-trade.json"))
+            stage = "Solana network verification"
             if executor.rpc("getGenesisHash", []) != MAINNET:
                 raise RuntimeError("Wrong chain")
+            stage = "SOL/USD reference feed"
             price = sol_usd()
+            stage = "wallet balance lookup"
             balance = executor.sol_balance()/1e9
             print(json.dumps(dict(wallet=executor.owner, network="Solana mainnet", balance_sol=balance,
                 approximate_balance_usd=balance*price, budget_usd=min(100,balance*price),
@@ -322,8 +354,8 @@ def main():
                 deposit_arrival_verified=False,
                 daily_stop_usd=15, trade_submitted=False, funded_trade_execution_verified=False)))
             return
-        except (OSError, ValueError, RuntimeError, KeyError):
-            raise SystemExit("Read-only check failed. Check wallet, RPC and reference-feed connectivity; no trade was submitted.")
+        except (OSError, ValueError, RuntimeError, KeyError, TypeError, ImportError) as exc:
+            raise SystemExit(check_failure(stage, exc)) from None
     if not args.acknowledge_live_risk:
         parser.error("This spends real SOL. Explicit --acknowledge-live-risk is required")
     try:
