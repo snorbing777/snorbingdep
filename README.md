@@ -153,8 +153,10 @@ For an existing live Solana process, use its separate dashboard snapshot:
 python3 dashboard.py --snapshot .local/live-state.dashboard.json
 ```
 
-Dashboard endpoints are read-only and bind to loopback. They never expose
-signer files or place trades. The native receiver works without an open browser
+Dashboard endpoints bind to loopback and never expose signer files. Research,
+artwork and status are read-only; the manual order endpoint only builds and
+simulates unsigned trades. Phantom signs and submits only after user approval.
+The native receiver works without an open browser
 once the dashboard is running. Notifications depend on OS permissions and
 availability, and do not substitute for monitoring open positions.
 
@@ -239,7 +241,8 @@ git pull --ff-only
 bash "Open Live Dashboard.command"
 ```
 
-Leave the Terminal running. This starts discovery and the dashboard only; it
+For this foreground command, leave Terminal running. The background Mac app
+installation below removes that requirement. This starts the dashboard only; it
 **does not start live trading**. A stale/offline trading report does not stop the
 launch stream. The browser must reach `pumpportal.fun`; errors/reconnects and
 coverage gaps are displayed. If a connection remains unavailable, no launches
@@ -269,7 +272,7 @@ Token cards use a direct HTTPS image from the creation event where available,
 or resolve its metadata through the local read-only artwork service, with supported IPFS/Arweave gateway retries and an indexed-market fallback. Images can
 load after the card appears. Broken, missing or unsupported artwork falls back
 to initials. Logos are supplied by token creators and are not identity checks.
-The artwork service fetches only allowlisted HTTPS gateways, validates redirects, limits bytes/time/concurrency, and proxies supported raster images to avoid browser CORS failures. Unsupported or unavailable images retain a fallback; Retry pictures retries client lookups. Metadata is read only as JSON. Images use no-referrer loading; the image host can
+The artwork service fetches only allowlisted HTTPS gateways, validates redirects, limits bytes/time/concurrency, and proxies supported raster images to avoid browser CORS failures. Unsupported or unavailable images retain a fallback; Retry pictures retries client lookups. Metadata is read as JSON or recognized raster image bytes. Images use no-referrer loading; the image host can
 still see the browser's request. Arbitrary metadata hosts, local-address images,
 non-HTTPS URLs and embedded HTML are not accepted.
 
@@ -428,3 +431,94 @@ This makes latency measurable, not zero. Network conditions, provider quotas,
 RPC speed, fees, confirmation time and the scanner's polling interval still
 apply. The pipeline preserves serial accounting, preflight checks and pending
 journals; it is not a guaranteed first-block sniper or a production-verified bot.
+
+
+## Background Mac app, runner research and manual Phantom orders
+
+Stop the old foreground **dashboard** with Control-C, update the checkout, then:
+
+```sh
+bash "Install Mac App.command"
+```
+
+This creates `~/Applications/Signal Desk.app` and a per-user LaunchAgent at
+`~/Library/LaunchAgents/com.snorbingdep.signaldesk.plist`. It starts only the
+loopback dashboard, restarts it after a crash, and starts it at login. Close
+Terminal after the health check passes. Open the app to bring up the browser;
+keep the project folder and its `.venv` in place. This is a Mac app launcher
+using the installed Python environment, not a standalone Windows `.exe` or a
+packaged native trading application. macOS installation was tested with mocked
+system calls; actual LaunchAgent execution requires validation on a Mac.
+
+Use `bash "Restart Dashboard.command"` after future code updates. To stop the
+background dashboard, use `bash "Stop Dashboard Background.command"`; opening
+the app starts it again, and the saved agent starts again at next login. To
+remove login startup, stop it and remove only the generated LaunchAgent plist.
+Logs are `.local/dashboard.log` and `.local/dashboard-error.log`. An occupied
+port is reported instead of killing another process. macOS can require allowing
+Python access to the project folder in Privacy & Security. The agent uses the
+default public mainnet RPC; shell-only environment variables are not inherited
+by LaunchAgents. Do not put RPC credentials in a shared plist or app launcher.
+
+The app server staying up does not make a sleeping/offline laptop collect data.
+Keep the browser tab open and the Mac awake for the PumpPortal launch stream,
+audio and browser alerts. Stream reconnect and idle recovery mark coverage gaps;
+there is no historical backfill or all-market coverage guarantee. No real trading
+process starts just because the dashboard is installed or opened.
+
+Artwork now keeps existing image elements during launch updates, accepts the
+provider's image/metadata field aliases, retries failures with bounded backoff,
+and falls back to browser metadata fetching if the Python resolver fails. Each
+card shows whether artwork loaded or is unavailable. Private/unavailable creator
+assets may still have no picture; no substitute image is presented as the coin.
+
+Select **Analyze runner potential** on a launch card. Auto-screening queues the
+latest ten received launches, with a bounded queue and cached results; it does
+not scan all 1000 simultaneously or place orders. The panel shows liquidity,
+volume, buy/sell counts, age, pass/block decisions, social evidence and sources.
+A 100x price scenario shows market cap multiplied by 100 at constant supply;
+it is not a probability, forecast or liquidity estimate. Missing market data,
+unindexed bonding curves and missing/stale social measurements block approval.
+Holder concentration, creator intent, LP control and organic virality remain
+unverified; passing this heuristic screen is not proof of safety or profitability.
+
+Narrative measurements require authorized X recent-search access: configure
+`X_BEARER_TOKEN` securely in the collector's local environment, create up to five
+exact mint/topic entries in `narrative_topics.json` following the example, and
+run `.venv/bin/python social_feed.py --measure-topics` (or Start Social
+Feeds.command, option 1). Never paste credentials into the dashboard or chat.
+The panel displays actual collected evidence, rather than inferring virality
+from a token's name. The existing live engine rechecks its own entry gates; a
+research badge does not place a trade or add that launch to its indexed-market
+scan. The default market gate still requires 30 minutes of indexed market age.
+There is no validated strategy for reliably finding 100x runners here.
+
+**Manual trade** opens an order form. Use current Phantom in Chrome/Brave and
+connect the Solana account you use on pump.fun. This shares that account's
+on-chain holdings; it does not import pump.fun login, profile, email account or
+sessions. No seed phrase, private key or pump.fun password is requested.
+Wallet Standard handles connection and approval without third-party JS bundles.
+
+1. Choose the full mint, buy SOL amount (maximum 0.1 SOL), or sell 25/50/100%.
+2. Choose **Prepare and simulate**. The server checks mainnet, payer and guarded
+   SOL/token/authority changes. It returns an unsigned transaction and does not
+   broadcast anything. The buy guard retains a 0.01 SOL reserve and allows at
+   most 0.005 SOL overhead beyond the requested buy. Preparation expires in 30s.
+3. Review the mint, amount and debit allowance, then choose **Approve in Phantom**.
+   Inspect Phantom's own transaction preview before approving a real order.
+4. Confirmation is queried by public signature. An ambiguous wallet response
+   saves a browser pending flag, blocks another submission, and requires checking
+   Phantom activity/on-chain outcome before clearing it. It is never auto-retried.
+
+Use a **different account** from the automated wallet. Manual trades are outside
+its $2 entry, $6 exposure and $15 daily stop controls. Preparation is blocked for
+the bot wallet to prevent bypassing its ledger. Manual orders may lose their
+full value; simulation is not execution proof. The builder and RPC remain
+trusted dependencies. Real Phantom extension and funded manual swaps have not
+been tested here; automated tests use mocked wallet/provider responses.
+
+Additional verification: `node tests/research_manual_browser.cjs` with a test
+server on port 8766 and Playwright/Chromium installed exercises image recovery,
+stable image nodes, research evidence, Wallet Standard approval and pending
+submission persistence. Unit tests also check same-origin POST restrictions,
+ledger-wallet isolation, fee/debit guards and LaunchAgent configuration.

@@ -41,6 +41,11 @@ class ArtworkTests(unittest.TestCase):
         with patch('artwork.fetch',return_value=(b'\x89PNG\r\n\x1a\nfixture','text/plain')):
             self.assertEqual(artwork.image_bytes('https://ipfs.io/ipfs/QmImage')[1],'image/png')
 
+    def test_metadata_uri_can_point_directly_to_a_raster_image(self):
+        with patch('artwork.fetch',return_value=(b'\x89PNG\r\n\x1a\nfixture','image/png')):
+            result=artwork.resolve(self.mint,'ipfs://QmDirectImage')
+        self.assertEqual(result['image'],'https://ipfs.io/ipfs/QmDirectImage')
+
 
 class NarrativeTests(unittest.TestCase):
     def setUp(self):

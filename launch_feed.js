@@ -14,8 +14,8 @@
     return {mint: message.mint, name: String(message.name || 'Unnamed token').slice(0, 100),
       symbol: String(message.symbol || 'TOKEN').slice(0, 24), receivedAt: now,
       marketCapSol: positive(message.marketCapSol), initialBuy: positive(message.initialBuy),
-      image: typeof message.image === 'string' ? message.image.slice(0,2048) : null,
-      uri: typeof message.uri === 'string' ? message.uri.slice(0,2048) : null,
+      image: [message.image,message.image_uri,message.imageUri].find(x=>typeof x==='string'&&x)?.slice(0,2048)||null,
+      uri: [message.uri,message.metadata_uri,message.metadataUri].find(x=>typeof x==='string'&&x)?.slice(0,2048)||null,
       creatorSol: positive(message.solAmount), signature: typeof message.signature === 'string' ? message.signature : null};
   }
   class Store {

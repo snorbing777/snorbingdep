@@ -11,6 +11,8 @@ test('only valid creation events enter the feed; missing values stay unknown',()
   const token=parseLaunch({...creation,marketCapSol:'NaN',solAmount:undefined},1000);
   assert.equal(token.marketCapSol,null);assert.equal(token.creatorSol,null);
   assert.equal(token.receivedAt,1000);
+  assert.equal(parseLaunch({...creation,image_uri:'ipfs://image',metadataUri:'ipfs://metadata'}).image,'ipfs://image');
+  assert.equal(parseLaunch({...creation,metadataUri:'ipfs://metadata'}).uri,'ipfs://metadata');
 });
 test('deduplicates tokens, bounds visible memory and counts bursts outside retained rows',()=>{
   const store=new Store(1);

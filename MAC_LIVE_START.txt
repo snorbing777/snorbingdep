@@ -85,7 +85,8 @@ Search, sort, pause/reconnect, and open token pages from the launch cards.
 Up to 1000 recent received launches remain in the tab; no historical backfill.
 Interruptions can miss coins. Feed status is separate from trading bot status.
 To update: Control-C in the dashboard terminal, git pull --ff-only, then
-bash "Open Live Dashboard.command". Keep that Terminal process running.
+bash "Open Live Dashboard.command". Keep that Terminal process running unless
+you have installed the background Mac app described below.
 
 TOKEN PICTURES AND SOUNDS
 After updating and restarting the dashboard, cards load token artwork when
@@ -105,3 +106,33 @@ is included. @BullishCallsPremium requires channel permission for the bot.
 Wallet funding/withdrawal terminal commands are explained in the Live money tab
 and README.md. Withdrawal defaults to a preview and requires --execute plus
 typing WITHDRAW to submit. No funded end-to-end execution is verified.
+
+
+BACKGROUND MAC APP AND NEW RESEARCH / MANUAL TOOLS
+Stop only the old dashboard Terminal with Control-C, then run:
+  git pull --ff-only
+  bash "Install Mac App.command"
+The installer creates ~/Applications/Signal Desk.app and a user LaunchAgent.
+After its health check succeeds, Terminal can close. Keep this project folder
+in place. The dashboard restarts after a crash and at login; it does NOT start
+live trading. Keep the browser open and Mac awake for launch discovery/sounds.
+After later git updates run: bash "Restart Dashboard.command"
+To stop the background server: bash "Stop Dashboard Background.command"
+Logs: .local/dashboard.log and .local/dashboard-error.log. macOS may require
+allowing Python folder access in Privacy & Security. Native installation is
+unverified in this Linux cloud; do not describe it as already installed on Mac.
+
+Coin cards preserve image downloads, show artwork loading/failure states and
+retry. Analyze runner potential shows measured market/narrative data, missing
+sources and explicit screening blockers. Auto-research covers the latest ten
+received launches. A 100x market-cap scenario is arithmetic, not a prediction.
+Missing authorized X topic measurements keep narrative approval blocked. See
+README for narrative_topics.json and social_feed.py --measure-topics setup.
+
+Connect Phantom opens manual trades using the same Solana account you use on
+pump.fun; it does not import a pump.fun login/profile or custodial email wallet.
+Use a different account from the unattended bot. Prepare and simulate sends no
+trade; Approve in Phantom requests a real wallet approval and broadcast. Manual
+orders are outside automated risk limits. Pending/uncertain submissions block
+another order until their outcome is checked. Never share seeds or wallet files.
+No funded Phantom manual trade or production artwork delivery is verified here.

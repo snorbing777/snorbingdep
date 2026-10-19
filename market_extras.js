@@ -13,34 +13,55 @@
     }catch(_){return null;}
   }
   function metadataURL(value){const safe=imageURL(value);if(!safe)return null;const host=new URL(safe).hostname;return META_HOSTS.has(host)||host.endsWith('.ipfs.dweb.link')?safe:null;}
+  async function boundedJSON(response){
+    if(!response.ok||!response.body)throw Error('unavailable');
+    const reader=response.body.getReader(),chunks=[];let size=0;
+    while(true){const {done,value}=await reader.read();if(done)break;size+=value.byteLength;if(size>262144){await reader.cancel();throw Error('oversize');}chunks.push(value);}
+    const raw=new Uint8Array(size);let offset=0;for(const chunk of chunks){raw.set(chunk,offset);offset+=chunk.byteLength;}
+    return JSON.parse(new TextDecoder().decode(raw));
+  }
   class Artwork{
-    constructor({fetchImpl=root.fetch,onChange=()=>{}}={}){this.fetch=(...args)=>fetchImpl.call(root,...args);this.onChange=onChange;this.cache=new Map();this.queue=[];this.active=0;}
+    constructor({fetchImpl=root.fetch,onChange=()=>{},now=()=>Date.now()}={}){this.fetch=(...args)=>fetchImpl.call(root,...args);Object.assign(this,{onChange,now});this.cache=new Map();this.queue=[];this.active=0;}
     get(token){
-      if(this.cache.has(token.mint))return this.cache.get(token.mint).url;
-      const image=imageURL(token.image),uri=typeof token.uri==='string'?token.uri.slice(0,2048):'';
-      this.cache.set(token.mint,{url:image,token,pending:!image,attempted:false});
-      if(this.cache.size>1200)this.cache.delete(this.cache.keys().next().value);
-      if(!image)this.enqueue(token.mint,uri);
-      return image;
+      let value=this.cache.get(token.mint);
+      if(!value){const image=imageURL(token.image);value={url:image,token,pending:false,attempted:false,attempts:0,status:image?'Loading image':'Loading metadata'};this.cache.set(token.mint,value);if(!image)this.enqueue(token.mint);}
+      else if(!value.url&&!value.pending&&value.retryAt&&this.now()>=value.retryAt&&value.attempts<3)this.enqueue(token.mint);
+      while(this.cache.size>1200)this.cache.delete(this.cache.keys().next().value);
+      return this.cache.get(token.mint)?.url||null;
     }
-    enqueue(mint,uri){if(this.queue.length>=1000){const old=this.queue.shift();this.cache.set(old.mint,{url:null,pending:false});}this.queue.push({mint,uri});this.pump();}
-    reject(mint){const old=this.cache.get(mint)||{};if(old.backup){this.cache.set(mint,{...old,url:old.backup,backup:null});this.onChange();return;}this.cache.set(mint,{...old,url:null,pending:!old.attempted});if(!old.attempted)this.enqueue(mint,old.token?.uri||'');}
-    retry(){for(const [mint,value] of this.cache)if(!value.url&&!value.pending)this.cache.delete(mint);this.onChange();}
+    status(mint){return this.cache.get(mint)?.status||'Loading artwork';}
+    loaded(mint){const entry=this.cache.get(mint);if(entry)entry.status='Artwork loaded';}
+    enqueue(mint){const entry=this.cache.get(mint);if(!entry||entry.pending)return;entry.pending=true;entry.status='Loading metadata';this.queue.push(mint);
+      this.queue.sort((a,b)=>(this.cache.get(b)?.token?.receivedAt||0)-(this.cache.get(a)?.token?.receivedAt||0));
+      if(this.queue.length>1000){const dropped=this.cache.get(this.queue.pop());if(dropped){dropped.pending=false;dropped.retryAt=this.now()+30000;dropped.status='Artwork queued for later';}}
+      this.pump();
+    }
+    reject(mint,failedURL){const old=this.cache.get(mint);if(!old||(failedURL&&old.url!==failedURL))return;
+      if(old.backup){old.url=old.backup;old.backup=null;old.status='Trying direct image';}
+      else{old.url=null;old.status='Image unavailable · retrying';old.retryAt=this.now()+10000;if(!old.attempted)this.enqueue(mint);}
+      this.onChange(mint);
+    }
+    retry(){for(const [mint,value] of this.cache)if(!value.url&&!value.pending){value.attempts=0;this.enqueue(mint);}this.onChange();}
+    async json(url,timeout){const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),timeout);try{return await boundedJSON(await this.fetch(url,{signal:controller.signal,credentials:'omit',referrerPolicy:'no-referrer',redirect:'follow'}));}finally{clearTimeout(timer);}}
     async pump(){
       if(this.active>=4||!this.queue.length)return;
-      const job=this.queue.shift();this.active++;
-      const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),15000);
+      const mint=this.queue.shift(),entry=this.cache.get(mint);if(!entry){this.pump();return;}this.active++;entry.attempts++;
       try{
-        const response=await this.fetch('/api/artwork?mint='+encodeURIComponent(job.mint)+'&uri='+encodeURIComponent(job.uri),{signal:controller.signal,credentials:'omit',referrerPolicy:'no-referrer',redirect:'error'});
-        if(!response.ok||!response.body)throw Error('metadata');
-        const reader=response.body.getReader(),chunks=[];let size=0;
-        while(true){const {done,value}=await reader.read();if(done)break;size+=value.byteLength;if(size>262144){await reader.cancel();throw Error('oversize');}chunks.push(value);}
-        const raw=new Uint8Array(size);let offset=0;for(const chunk of chunks){raw.set(chunk,offset);offset+=chunk.byteLength;}
-        const metadata=JSON.parse(new TextDecoder().decode(raw));
-        const proxy=typeof metadata.proxy==='string'&&metadata.proxy.startsWith('/api/token-image?url=')?metadata.proxy:null;
-        this.cache.set(job.mint,{url:proxy||imageURL(metadata.image),backup:proxy?imageURL(metadata.image):null,pending:false,attempted:true});
-      }catch(_){this.cache.set(job.mint,{url:null,pending:false,attempted:true});}
-      finally{clearTimeout(timer);while(this.cache.size>1200)this.cache.delete(this.cache.keys().next().value);this.active--;this.onChange();this.pump();}
+        let metadata;const uri=typeof entry.token?.uri==='string'?entry.token.uri.slice(0,2048):'';
+        try{metadata=await this.json('/api/artwork?mint='+encodeURIComponent(mint)+'&uri='+encodeURIComponent(uri),6000);}catch(_){}
+        let url=imageURL(metadata?.image),proxy=typeof metadata?.proxy==='string'&&metadata.proxy.startsWith('/api/token-image?url=')?metadata.proxy:null;
+        // Browser trust and CORS differ from Python's. Try public metadata directly
+        // when the local resolver fails (including macOS Python trust-store errors).
+        if(!url&&!proxy){
+          const safe=metadataURL(uri),choices=safe?[safe]:[];
+          if(safe){const parsed=new URL(safe);if(parsed.pathname.startsWith('/ipfs/'))choices.push('https://ipfs.io'+parsed.pathname,'https://gateway.pinata.cloud'+parsed.pathname);}
+          for(const source of [...new Set(choices)].slice(0,2)){
+            try{const data=await this.json(source,5000),image=data.image||data.image_uri;url=imageURL(image?new URL(image,source).href:null);if(url)break;}catch(_){}
+          }
+        }
+        entry.url=proxy||url;entry.backup=proxy?url:null;entry.status=entry.url?'Loading image':'Metadata unavailable · retry later';
+      }catch(_){entry.url=null;entry.status='Metadata unavailable · retry later';}
+      finally{entry.pending=false;entry.attempted=true;entry.retryAt=this.now()+Math.min(90000,10000*3**(entry.attempts-1));this.active--;this.onChange(mint);this.pump();}
     }
   }
   class WhaleTracker{

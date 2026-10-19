@@ -7,7 +7,11 @@ function age(time) { const seconds=Math.max(0,Math.floor((Date.now()-time)/1000)
 let notificationsEnabled=false, initialized=false, previousTime=0, seen=new Set(), renderTimer=null, pageSize=60;
 const store = new PumpLaunchFeed.Store();
 let streamState='connecting', lastEvent=0;
-const artwork=new MarketExtras.Artwork({onChange:()=>scheduleRender()});
+const cards=new Map();
+const artwork=new MarketExtras.Artwork({onChange:mint=>{
+  if(mint&&cards.has(mint))renderArtwork(cards.get(mint),store.items.find(t=>t.mint===mint));
+  else for(const token of store.items)if(cards.has(token.mint))renderArtwork(cards.get(token.mint),token);
+}});
 const sounds=new MarketExtras.Sounds(), whales=new MarketExtras.WhaleTracker();
 let whaleEvents=[], lastWhalePopup=0;
 function syncWhales(){feed.setTradeTokens($('whale-enabled').checked?store.items.slice(0,25).map(t=>t.mint):[]);$('whale-scope').textContent=$('whale-enabled').checked?`Monitoring ${feed.tradeTokens.length} recent launches · threshold is trade size, not wallet identity.`:'Large-buy monitoring off. Enable to watch the 25 most recent received launches.';}
@@ -46,13 +50,23 @@ document.querySelectorAll('[data-tab]').forEach(button=>button.onclick=()=>{
   document.querySelectorAll('.tab-panel').forEach(p=>p.classList.toggle('hidden',p.id!=='tab-'+button.dataset.tab));
 });
 
+function renderArtwork(card,t){
+  if(!t)return;
+  const avatar=card.querySelector('.avatar'),status=card.querySelector('.art-status'),url=artwork.get(t),previous=avatar.querySelector('img');
+  status.textContent=artwork.status(t.mint);
+  if(previous?.dataset.url===url)return;
+  previous?.remove();
+  if(url){const img=document.createElement('img');img.dataset.url=url;img.alt=t.name+' token artwork';img.loading='lazy';img.decoding='async';img.referrerPolicy='no-referrer';
+    img.onload=()=>{artwork.loaded(t.mint);status.textContent='Artwork loaded';};
+    img.onerror=()=>{img.remove();artwork.reject(t.mint,url);};img.src=url;avatar.append(img);
+  }
+}
 function tokenCard(t) {
+  if(cards.has(t.mint))return cards.get(t.mint);
   const card=node('article','','token');card.dataset.mint=t.mint;
   const top=node('div','','token-top'), avatar=node('div',t.symbol.slice(0,2).toUpperCase(),'avatar');
   let hue=0;for(const c of t.mint)hue=(hue*31+c.charCodeAt(0))%360;
   avatar.style.background=`hsl(${hue} 25% 25%)`;avatar.style.color=`hsl(${hue} 80% 84%)`;
-  const image=artwork.get(t);
-  if(image){const img=document.createElement('img');img.alt=t.name+' token artwork';img.loading='lazy';img.decoding='async';img.referrerPolicy='no-referrer';img.src=image;img.onerror=()=>{artwork.reject(t.mint);img.remove();};avatar.append(img);}
   const name=node('div','','token-name');name.append(node('strong',t.name),node('div','$'+t.symbol,'symbol'));
   const timestamp=node('span',age(t.receivedAt),'token-age');timestamp.dataset.time=String(t.receivedAt);
   top.append(avatar,name,timestamp);
@@ -64,7 +78,11 @@ function tokenCard(t) {
   copy.title=t.mint;copy.setAttribute('aria-label','Copy contract '+t.mint);
   copy.onclick=async()=>{try{await navigator.clipboard.writeText(t.mint);copy.textContent='Address copied ✓';}catch(_){popup({id:'copy-'+Date.now(),time:Date.now()/1000,kind:'warning',title:'COPY ADDRESS',detail:t.mint});}};
   const link=node('a','View on pump.fun ↗','button small');link.href='https://pump.fun/coin/'+encodeURIComponent(t.mint);link.target='_blank';link.rel='noopener noreferrer';
-  bottom.append(copy,link);card.append(top,stats,bottom,node('span','● NEW LAUNCH · UNREVIEWED','unreviewed'));
+  const actions=node('div','','token-actions'),analyze=node('button','Analyze runner potential','button small'),trade=node('button','Manual trade','button small');
+  analyze.onclick=()=>window.RunnerResearch.open(t);trade.onclick=()=>window.ManualWallet.open(t.mint);
+  actions.append(analyze,trade);
+  bottom.append(copy,link);card.append(top,node('small','Loading artwork','art-status'),stats,bottom,actions,node('span','● NEW LAUNCH · UNREVIEWED','unreviewed'));
+  cards.set(t.mint,card);renderArtwork(card,t);
   return card;
 }
 const more=node('button','Show more','button small');more.onclick=()=>{pageSize+=60;renderLaunches();};$('retained').after(more);
@@ -79,7 +97,11 @@ function renderLaunches() {
     empty.append(node('p',store.items.length?'Try another ticker, contract, or age filter.':streamState==='connected'?'New creations will appear here as the provider delivers them. No wallet or trading process is required.':'Check your internet connection and the feed status. Reconnect to try again. Existing launches are not backfilled.'));
     rows.push(empty);
   }
-  $('tokens').replaceChildren(...rows);
+  // Preserve existing image elements; replacing the entire grid on every launch
+  // repeatedly cancelled slow/lazy image downloads.
+  const wanted=new Set(rows);for(const child of [...$('tokens').children])if(!wanted.has(child))child.remove();
+  rows.forEach((row,i)=>{if($('tokens').children[i]!==row)$('tokens').insertBefore(row,$('tokens').children[i]||null);});
+  const retained=new Set(store.items.map(t=>t.mint));for(const mint of cards.keys())if(!retained.has(mint))cards.delete(mint);
   if(activeMint)$('tokens').querySelector(`[data-mint="${activeMint}"] .contract`)?.focus({preventScroll:true});
   $('visible-count').textContent=`${tokens.length} tokens`;
   $('launch-total').textContent=store.total.toLocaleString();$('launch-minute').textContent=store.recentCount().toLocaleString();
@@ -92,7 +114,7 @@ for(const id of ['search','age','sort'])$(id).addEventListener(id==='search'?'in
 const feed=new PumpLaunchFeed.Connection({
   onToken(message){
     const token=store.add(message);
-    if(token){lastEvent=Date.now();scheduleRender();syncWhales();if($('launch-sounds').checked)sounds.play('launch');return;}
+    if(token){lastEvent=Date.now();scheduleRender();syncWhales();window.RunnerResearch?.observe(token);if($('launch-sounds').checked)sounds.play('launch');return;}
     const trade=whales.accept(message,feed.tradeTokens,Number($('whale-threshold').value));
     if(trade){
       const token=store.items.find(t=>t.mint===trade.mint),symbol=token?.symbol||trade.mint.slice(0,6);
@@ -103,7 +125,7 @@ const feed=new PumpLaunchFeed.Connection({
     }
   },
   onStatus(status){
-    streamState=status.state;
+    streamState=status.state;if(status.state==='connected')connectedAt=Date.now();
     const labels={connecting:'Connecting to launch stream',connected:'Launch stream connected',reconnecting:'Disconnected · retrying',paused:'Launch stream paused',provider_error:'Provider rejected subscription'};
     $('feed-state').textContent=labels[status.state]||'Stream unavailable';
     $('feed-badge').classList.toggle('online',status.state==='connected');
@@ -113,10 +135,14 @@ const feed=new PumpLaunchFeed.Connection({
     $('whale-connection').textContent=status.state==='connected'?'Trade stream uses this connection; provider coverage applies.':'Trade monitoring interrupted with launch feed.';
   }
 });
+let connectedAt=0,lastRecovery=0;
 $('pause-feed').onclick=()=>{if(feed.stopped)feed.start();else feed.stop();};
 $('reconnect').onclick=()=>feed.reconnect();
 $('retry-art').onclick=()=>artwork.retry();
 feed.start();renderLaunches();
+window.addEventListener('online',()=>{if(!feed.stopped)feed.reconnect();});
+function recoverStream(){if(!feed.stopped&&streamState==='connected'&&Date.now()-Math.max(lastEvent,connectedAt)>120000&&Date.now()-lastRecovery>120000){lastRecovery=Date.now();feed.reconnect();}}
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)recoverStream();});
 function renderWhales(){
   $('whale-timeline').replaceChildren(...whaleEvents.map(alertNode));
   if(!whaleEvents.length)$('whale-timeline').append(node('p','No qualifying buys received for monitored tokens.','side-note'));
@@ -124,6 +150,8 @@ function renderWhales(){
 renderWhales();
 window.addEventListener('beforeunload',()=>feed.stop(false));
 setInterval(()=>{
+  recoverStream();
+  for(const t of store.items.slice(0,pageSize))if(cards.has(t.mint))renderArtwork(cards.get(t.mint),t);
   document.querySelectorAll('.token-age').forEach(el=>el.textContent=age(Number(el.dataset.time)));
   $('launch-minute').textContent=store.recentCount().toLocaleString();
   $('feed-updated').textContent=lastEvent?'Last event '+age(lastEvent):'Awaiting first event';
@@ -142,7 +170,8 @@ async function refreshBot() {
     $('equity').textContent=money(d.equity);$('positions').textContent=(d.positions||[]).length;$('limit').textContent=money(d.daily_loss_usd);
     $('equity-note').textContent=stale?'No fresh trading bot report':mode+' · tracked ledger';
     $('position-note').textContent=stale?'No fresh trading data':'From the trading ledger';
-    $('status').textContent=d.error?d.error:stale?'Trading process offline or not reporting. Launch discovery above runs independently.':d.halted?'Daily stop active. New entries halted.':'Bot report updated '+new Date(d.time*1000).toLocaleTimeString()+'. This page cannot place trades.';
+    $('server-health').textContent='App server online';
+    $('status').textContent=d.error?d.error:stale?'Trading process offline or not reporting. Launch discovery above runs independently.':d.halted?'Daily stop active. New entries halted.':'Bot report updated '+new Date(d.time*1000).toLocaleTimeString()+'. Manual orders require Phantom approval.';
     $('bot-warning').textContent=d.error|| (d.halted?'Daily stop active. Exits depend on liquidity and execution.':'');$('bot-warning').classList.toggle('hidden',!d.error&&!d.halted);
     const rows=(d.candidates||[]).slice().sort((a,b)=>b.score-a.score).map(x=>{
       const row=node('tr',''), name=node('td','');name.append(node('strong',x.symbol||'Unknown'),node('div',x.chain||'solana','symbol'));
@@ -156,6 +185,7 @@ async function refreshBot() {
     for(const a of alerts){if(initialized&&!stale&&!seen.has(a.id)&&a.time>=previousTime&&Date.now()/1000-a.time<120)popup(a);seen.add(a.id);}
     initialized=true;previousTime=d.time||previousTime;if(seen.size>500)seen=new Set(alerts.map(a=>a.id));
   } catch(_) {
+    $('server-health').textContent='App server offline · reopen Signal Desk app';
     $('status').textContent='Dashboard connection lost. Trading reports may be stale.';$('mode').textContent='Disconnected';
     $('mode').classList.add('offline');
   }

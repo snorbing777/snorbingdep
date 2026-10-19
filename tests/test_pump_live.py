@@ -110,6 +110,11 @@ class PumpTests(unittest.TestCase):
         with patch.object(self.executor,'rpc',side_effect=self.simulation()), patch.object(self.executor,'sol_balance',return_value=1000000000):
             self.executor.simulate(self.tx,self.mint,True,10000000,max_debit_lamports=15000000)
 
+    def test_guarded_simulation_can_use_only_a_public_owner(self):
+        del self.executor.key
+        with patch.object(self.executor,'rpc',side_effect=self.simulation()), patch.object(self.executor,'sol_balance',return_value=1000000000):
+            self.executor.simulate(self.tx,self.mint,True,10000000,max_debit_lamports=15000000)
+
     def test_simulation_rejects_overspending_or_no_output(self):
         for responses in (self.simulation(after_sol=900000000),self.simulation(output=token_account(self.executor.owner,self.mint,0))):
             with patch.object(self.executor,'rpc',side_effect=responses), patch.object(self.executor,'sol_balance',return_value=1000000000):

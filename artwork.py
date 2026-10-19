@@ -68,7 +68,10 @@ def resolve(mint, uri):
         urls = []
     for url in urls[:2]:
         try:
-            body, _ = fetch(url, 262144)
+            body, kind = fetch(url, 262144)
+            if body.startswith((b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff", b"GIF87a", b"GIF89a")) or (body[:4] == b"RIFF" and body[8:12] == b"WEBP"):
+                result = {"image": url, "status": "ready"}
+                break
             data = json.loads(body)
             image = data.get("image") or data.get("image_uri")
             if image:

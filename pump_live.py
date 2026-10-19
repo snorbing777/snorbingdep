@@ -79,7 +79,7 @@ class PumpExecutor(Executor):
             result = self.rpc("getTokenAccountsByOwner", [self.owner, {"programId": program}, {"encoding": "base64", "commitment": "confirmed"}])
             for item in result["value"]:
                 accounts[item["pubkey"]] = item["account"]
-        ata = str(Pubkey.find_program_address([bytes(self.key.pubkey()), bytes(Pubkey.from_string(mint_info["owner"])),
+        ata = str(Pubkey.find_program_address([bytes(Pubkey.from_string(self.owner)), bytes(Pubkey.from_string(mint_info["owner"])),
                     bytes(Pubkey.from_string(mint))], Pubkey.from_string(ATA_PROGRAM))[0])
         if ata not in accounts:
             accounts[ata] = None

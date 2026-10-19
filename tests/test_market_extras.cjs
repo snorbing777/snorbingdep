@@ -25,6 +25,16 @@ test('large buys require buy side, watched mint, threshold and unique signature'
   assert.equal(tracker.accept(event,['mint'],10).sol,12);
   assert.equal(tracker.accept(event,['mint'],10),null);
 });
+test('failed metadata retries after backoff and does not refetch on every render',async()=>{
+  let now=0,fetches=0,changed;
+  const artwork=new Artwork({now:()=>now,fetchImpl:async()=>{fetches++;return new Response('{"image":null}');},onChange:()=>changed?.()});
+  const token={mint:'retry-mint'};
+  await new Promise(resolve=>{changed=resolve;artwork.get(token);});
+  for(let i=0;i<50;i++)artwork.get(token);assert.equal(fetches,1);
+  now=10001;await new Promise(resolve=>{changed=resolve;artwork.get(token);});assert.equal(fetches,2);
+  now=40002;await new Promise(resolve=>{changed=resolve;artwork.get(token);});assert.equal(fetches,3);
+  now=1000000;artwork.get(token);assert.equal(fetches,3);
+});
 test('sound is opt-in, has separate cooldowns, respects mute and schedules finite envelopes',async()=>{
   let started=0,now=10000;
   const param={setValueAtTime(){},linearRampToValueAtTime(){},exponentialRampToValueAtTime(){}};

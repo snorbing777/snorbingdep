@@ -1,7 +1,8 @@
-"""Loopback-only, read-only dashboard. Never exposes wallet signing operations."""
+"""Loopback dashboard. Public trade preparation; signing stays in Phantom."""
 import argparse
 import json
 import re
+import threading
 import webbrowser
 from functools import partial
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -9,8 +10,12 @@ from pathlib import Path
 from urllib.parse import urlsplit, parse_qs, quote
 
 import artwork
+import manual_trading
+import research
 
 from callouts import public_snapshot
+
+MANUAL_SLOT = threading.BoundedSemaphore(1)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -19,18 +24,93 @@ class Handler(BaseHTTPRequestHandler):
         self.paper_snapshot = paper_snapshot or Path(".local/state.dashboard.json")
         super().__init__(*args, **kwargs)
 
-    def do_GET(self):
+    def allowed(self, write=False):
         hosts = {f"localhost:{self.server.server_port}", f"127.0.0.1:{self.server.server_port}"}
         if self.headers.get("Host") not in hosts:
+            return False
+        origin = self.headers.get("Origin")
+        expected = "http://"+self.headers.get("Host", "")
+        return (origin == expected if write else not origin or origin == expected)
+
+    def json_response(self, data, status=200):
+        body = json.dumps(data).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_POST(self):
+        if not self.allowed(write=True) or self.headers.get("Content-Type") != "application/json":
             self.send_error(403)
             return
-        origin = self.headers.get("Origin")
-        if origin and origin not in {"http://" + h for h in hosts}:
+        if self.path != "/api/manual/prepare":
+            self.send_error(404)
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if not 0 < length <= 4096:
+                raise ValueError("Invalid body length")
+            data = json.loads(self.rfile.read(length))
+            if not isinstance(data, dict):
+                raise ValueError("Invalid body")
+        except (ValueError, OSError):
+            self.json_response({"error": "Invalid trade request"}, 400)
+            return
+        if not MANUAL_SLOT.acquire(blocking=False):
+            self.json_response({"error": "A trade is being prepared. Please wait."}, 429)
+            return
+        try:
+            # Public identity comparison prevents manual debits bypassing the live ledger.
+            from wallet_setup import DEFAULT_WALLET, load_wallet
+            trading_owner = None
+            ledger = Path(".local/pump-live-state.json")
+            if ledger.exists():
+                stored_owner = json.loads(ledger.read_text()).get("wallet")
+                if stored_owner == data.get("owner"):
+                    raise manual_trading.ManualError("Use a separate Phantom account for manual trades; the automated wallet is managed by the live ledger.")
+            try:
+                trading_owner = str(load_wallet(DEFAULT_WALLET).pubkey())
+            except (OSError, ValueError, ImportError):
+                if DEFAULT_WALLET.exists():
+                    raise manual_trading.ManualError("The automated wallet identity could not be checked. Fix its local setup before preparing manual trades.") from None
+            self.json_response(manual_trading.prepare(data, trading_owner))
+        except manual_trading.ManualError as exc:
+            self.json_response({"error": str(exc)}, 400)
+        except (OSError, ValueError, RuntimeError, KeyError, TypeError, ImportError):
+            self.json_response({"error": "Trade preparation or guarded simulation failed. Check the mint, wallet balance and mainnet RPC/provider access. Nothing was submitted by the server."}, 503)
+        finally:
+            MANUAL_SLOT.release()
+
+    def do_GET(self):
+        if not self.allowed():
             self.send_error(403)
             return
         route = urlsplit(self.path).path
         query = parse_qs(urlsplit(self.path).query)
-        if route == "/":
+        if route == "/api/health":
+            self.json_response({"app": "signal-desk", "version": 2})
+            return
+        elif route == "/api/analysis":
+            if not research.SLOTS.acquire(blocking=False):
+                self.json_response({"error": "Research busy; retry shortly"}, 429)
+                return
+            try:
+                self.json_response(research.analyze(query.get("mint", [""])[0]))
+            except (ValueError, TypeError, KeyError):
+                self.json_response({"error": "Invalid mint or research data unavailable"}, 400)
+            finally:
+                research.SLOTS.release()
+            return
+        elif route == "/api/manual/status":
+            try:
+                self.json_response(manual_trading.status(query.get("owner", [""])[0], query.get("signature", [""])[0]))
+            except (OSError, ValueError, RuntimeError, KeyError, TypeError, ImportError):
+                self.json_response({"error": "Confirmation lookup unavailable. Check the signature in Phantom or a Solana explorer before retrying."}, 503)
+            return
+        elif route == "/":
             body = Path(__file__).with_name("dashboard.html").read_bytes()
             content_type = "text/html; charset=utf-8"
         elif route == "/shark.svg":
@@ -79,7 +159,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_error(404)
                 return
             content_type = "image/png" if body.startswith(b"\x89PNG") else "image/jpeg"
-        elif route in ("/launch_feed.js", "/dashboard.js", "/market_extras.js"):
+        elif route in ("/launch_feed.js", "/dashboard.js", "/market_extras.js", "/research_ui.js", "/manual_wallet.js"):
             body = Path(__file__).with_name(route[1:]).read_bytes()
             content_type = "text/javascript; charset=utf-8"
         elif route == "/api/status":
@@ -120,7 +200,10 @@ def main():
     parser.add_argument("--open-browser", action="store_true")
     parser.add_argument("--paper-snapshot", type=Path, default=Path(".local/state.dashboard.json"))
     args = parser.parse_args()
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), partial(Handler, snapshot=args.snapshot, paper_snapshot=args.paper_snapshot))
+    try:
+        server = ThreadingHTTPServer(("127.0.0.1", args.port), partial(Handler, snapshot=args.snapshot, paper_snapshot=args.paper_snapshot))
+    except OSError:
+        raise SystemExit(f"Cannot start the dashboard on local port {args.port}. An existing dashboard may already be running. Use Signal Desk.app or stop the old dashboard before starting another.") from None
     print(f"Dashboard listening on local port {server.server_port}; keep this terminal running. Discovery requires no trading wallet.", flush=True)
     if args.open_browser:
         webbrowser.open(f"http://127.0.0.1:{server.server_port}")
