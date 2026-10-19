@@ -55,6 +55,7 @@ def publish(path, report, state, config):
                 f"{token.get('chain', 'solana')} · momentum score {token['score']:.1f} · screening passed; not a buy instruction",
                 "watch:"+token["address"], 900)
     public = dict(time=now, mode=mode, error=report.get("error"), halted=report.get("halted", state.get("halted", False)),
+                  execution_timing_ms=state.get("last_execution_timing_ms"),
                   equity=report.get("equity"), cash=state["cash"], capital=config["capital"],
                   daily_loss_usd=config["capital"]*config["daily_loss_fraction"],
                   interval_seconds=config["interval_seconds"], chains=config["chains"],

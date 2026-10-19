@@ -82,7 +82,7 @@ The redesigned Discover tab streams newly received pump.fun creation events
 through PumpPortal as soon as the dashboard is open. Start only Open Live
 Dashboard.command to browse; do not start the trading process just to see coins.
 Search, sort, pause/reconnect, and open token pages from the launch cards.
-Up to 200 recent received launches remain in the tab; no historical backfill.
+Up to 1000 recent received launches remain in the tab; no historical backfill.
 Interruptions can miss coins. Feed status is separate from trading bot status.
 To update: Control-C in the dashboard terminal, git pull --ff-only, then
 bash "Open Live Dashboard.command". Keep that Terminal process running.
@@ -95,3 +95,13 @@ Check Monitor large buys to watch the 25 most recent received launches; default
 minimum is 10 SOL. These are reported large trades, not verified whale identities.
 Launch and large-buy tones differ; rapid alerts are grouped. Keep the page open.
 No wallet connection or funding is required for these read-only alerts.
+
+LATEST WORKFLOW
+Discover retains 1000 launches. Use Paper trading and Live money tabs for their
+separate reports. Start Paper Trading.command signs nothing and moves no SOL.
+Live new entries require fresh narrative measurements; missing data blocks buys.
+Callouts need authorized X API / Telegram bot access; neither source credential
+is included. @BullishCallsPremium requires channel permission for the bot.
+Wallet funding/withdrawal terminal commands are explained in the Live money tab
+and README.md. Withdrawal defaults to a preview and requires --execute plus
+typing WITHDRAW to submit. No funded end-to-end execution is verified.

@@ -1,0 +1,26 @@
+const assert=require('node:assert/strict');const {chromium}=require('playwright');
+(async()=>{
+ const browser=await chromium.launch({headless:true,...(process.env.BROWSER_PATH?{executablePath:process.env.BROWSER_PATH}:{})});
+ const page=await browser.newPage({viewport:{width:1512,height:1050}}), errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.routeWebSocket('wss://pumpportal.fun/api/data',ws=>ws.onMessage(()=>{}));
+ const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jv1kAAAAASUVORK5CYII=','base64');
+ const now=Date.now()/1000,mint='So11111111111111111111111111111111111111112';
+ const report=(mode,equity)=>({time:now,mode,equity,positions:[],alerts:[],interval_seconds:60,daily_loss_usd:15,candidates:[]});
+ await page.route('**/api/status?mode=paper',route=>route.fulfill({json:report('paper',123)}));
+ await page.route('**/api/status?mode=live',route=>route.fulfill({json:report('live-pump',87)}));
+ await page.route('**/api/wallet',route=>route.fulfill({json:{address:mint}}));
+ await page.route('**/api/community',route=>route.fulfill({json:{status:'TEST FIXTURES · no real posts fetched',updated_at:now,items:[{id:'test',author:'TEST AUTHOR',source:'X',time:now,text:'<script>untrusted</script> Callout fixture',mint,image:'https://pbs.twimg.com/media/fixture.jpg',source_url:'https://x.com/test/status/123'}]}}));
+ await page.route('https://pbs.twimg.com/media/fixture.jpg',route=>route.fulfill({contentType:'image/png',body:png}));
+ await page.goto(process.env.DASHBOARD_URL||'http://127.0.0.1:8766');
+ await page.locator('.brand img').waitFor();assert.ok(await page.locator('.brand img').evaluate(img=>img.complete&&img.naturalWidth>0));
+ await page.locator('[data-tab=paper]').click();await page.getByText('$123.00',{exact:true}).waitFor();
+ assert.match(await page.locator('#tab-paper').textContent(),/Virtual funds only/);assert.ok(!(await page.locator('#tab-paper').textContent()).includes('$87.00'));
+ await page.locator('[data-tab=live]').click();await page.getByText('$87.00',{exact:true}).waitFor();
+ assert.equal(await page.locator('#deposit-address').textContent(),mint);assert.match(await page.locator('#tab-live').textContent(),/wallet_manage.py withdraw/);
+ await page.locator('[data-tab=community]').click();await page.locator('.community-post').waitFor();
+ assert.match(await page.locator('.community-post').textContent(),/<script>untrusted<\/script>/);assert.equal(await page.locator('.community-post script').count(),0);
+ await page.waitForFunction(()=>document.querySelector('.community-media')?.naturalWidth>0);
+ await page.setViewportSize({width:390,height:844});await page.waitForTimeout(200);
+ assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+ assert.deepEqual(errors,[]);await browser.close();console.log('PASS: shark asset, isolated paper/live reports, public deposit address, terminal withdrawal help, community artwork/text safety, and mobile layout. Fixtures only; no real money moved.');
+})().catch(error=>{console.error(error);process.exit(1)});

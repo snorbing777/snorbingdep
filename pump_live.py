@@ -13,6 +13,7 @@ from pathlib import Path
 
 import bot
 import spending
+import narrative
 from live import Executor, ExecutionUncertain, save
 from wallet_setup import DEFAULT_WALLET, load_wallet
 
@@ -59,7 +60,7 @@ class PumpExecutor(Executor):
         self.key = load_wallet(wallet)
         self.owner = str(self.key.pubkey())
         self.journal = journal
-        if journal.exists():
+        if journal.exists() or Path(".local/withdraw-pending.json").exists():
             raise ExecutionUncertain("Pending trade exists. Reconcile its signature and ledger before restarting")
 
     def sol_balance(self):
@@ -134,6 +135,7 @@ class PumpExecutor(Executor):
             raise RuntimeError("Sell simulation does not match the tracked position")
 
     def trade(self, mint, buy, amount, max_debit_lamports=None):
+        started = time.perf_counter()
         from solders.pubkey import Pubkey
         from solders.transaction import VersionedTransaction
         from solders.message import to_bytes_versioned
@@ -156,9 +158,11 @@ class PumpExecutor(Executor):
         if len(raw) > 4096:
             raise RuntimeError("Oversized transaction response")
         tx = VersionedTransaction.from_bytes(raw)
+        built = time.perf_counter()
         if tx.message.header.num_required_signatures != 1 or str(tx.message.account_keys[0]) != self.owner:
             raise RuntimeError("Unexpected transaction signer")
         self.simulate(tx, mint, buy, amount, max_debit_lamports)
+        simulated = time.perf_counter()
         if buy and Path(".local/PAUSE_BUYS").exists():
             raise EntryPaused("New entries paused before signing")
         signed = VersionedTransaction.populate(tx.message, [self.key.sign_message(to_bytes_versioned(tx.message))])
@@ -166,6 +170,7 @@ class PumpExecutor(Executor):
         save(self.journal, dict(signature=signature, mint=mint, buy=buy, amount=amount, max_debit_lamports=max_debit_lamports, time=time.time()))
         self.rpc("sendTransaction", [base64.b64encode(bytes(signed)).decode(),
                  {"encoding": "base64", "skipPreflight": False, "maxRetries": 2}])
+        sent = time.perf_counter()
         for _ in range(60):
             transaction = self.rpc("getTransaction", [signature, {"encoding": "jsonParsed", "commitment": "confirmed", "maxSupportedTransactionVersion": 0}])
             if transaction:
@@ -184,6 +189,8 @@ class PumpExecutor(Executor):
                     raise ExecutionUncertain("Unexpected confirmed fill; reconcile journal and balances")
                 self.min_slot = transaction.get("slot")
                 return dict(signature=signature, raw_delta=delta,
+                            timing_ms={"build": round((built-started)*1000), "simulation": round((simulated-built)*1000),
+                                       "broadcast": round((sent-simulated)*1000), "confirmation": round((time.perf_counter()-sent)*1000)},
                             quantity=delta/10**entries[0]["uiTokenAmount"]["decimals"], sol_delta=sol_delta,
                             sol_delta_lamports=meta["postBalances"][0]-meta["preBalances"][0],
                             sol_fee=meta["fee"]/1e9)
@@ -194,7 +201,7 @@ class PumpExecutor(Executor):
 def run(args):
     import fcntl
     c = bot.validate(bot.DEFAULTS | json.loads(Path("config.json").read_text()))
-    c.update(capital=100.0, daily_loss_fraction=.15, chains=["solana"], pump_only=True, watchlist=[])
+    c.update(capital=100.0, daily_loss_fraction=.15, chains=["solana"], pump_only=True, watchlist=[], require_narrative=True)
     path = Path(".local/pump-live-state.json")
     path.parent.mkdir(exist_ok=True)
     with path.with_suffix(".lock").open("w") as lock:
@@ -220,12 +227,13 @@ def run(args):
         save(path, state)
         print("REAL TRADING ENABLED · Solana mainnet · public wallet " + executor.owner, flush=True)
         print("Budget capped at $100 at initialization; daily $15 stop trigger; fees/rent reduce tracked SOL cash.", flush=True)
+        print("Fresh narrative measurements are required for new buys. Missing evidence blocks entry; exits remain active.", flush=True)
         try:
             while True:
                 spending.reconcile(state, executor.sol_balance())
                 sol_price = sol_usd()
                 state["cash"] = state["cash_sol"]*sol_price
-                candidates = bot.scan(state, c)
+                candidates = narrative.enforce(bot.scan(state, c), c, time.time())
                 proposed = copy.deepcopy(state)
                 today = time.strftime("%Y-%m-%d", time.gmtime())
                 if state.get("day") != today:
@@ -248,6 +256,9 @@ def run(args):
                         continue
                     address, buy = event["address"], event["event"] == "buy"
                     if buy:
+                        candidate = next(x for x in candidates if x["address"] == address)
+                        if not narrative.enforce([candidate], c, time.time())[0]["eligible"]:
+                            continue
                         current_equity = bot.equity(state, {})
                         if state["halted"] or current_equity <= state["day_equity"]-15:
                             state["halted"] = True
@@ -271,6 +282,7 @@ def run(args):
                     state["wallet_balance_lamports"] += delta_lamports
                     state["cash_sol"] = (round(state["cash_sol"]*1e9)+delta_lamports)/1e9
                     state["cash"] = state["cash_sol"]*sol_price
+                    state["last_execution_timing_ms"] = fill.get("timing_ms")
                     if buy:
                         candidate = next(x for x in candidates if x["address"] == address)
                         spent = -fill["sol_delta"]*sol_price
@@ -366,6 +378,8 @@ def main():
                 minimum_funding_present=balance >= .01, reserve_sol=spending.RESERVE/1e9,
                 max_entry_total_usd=spending.MAX_ENTRY_USD, max_open_exposure_usd=spending.MAX_EXPOSURE_USD,
                 deposit_arrival_verified=False,
+                narrative_evidence_file_present=narrative.EVIDENCE.exists(),
+                entry_policy="Fresh measured narrative activity required; no runner or profit guarantee",
                 daily_stop_usd=15, trade_submitted=False, funded_trade_execution_verified=False)))
             return
         except (OSError, ValueError, RuntimeError, KeyError, TypeError, ImportError) as exc:

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Little shark">
+<rect width="64" height="64" rx="18" fill="#c1f879"/>
+<path d="M10 35c7-10 17-15 29-12l-4-12c8 3 12 9 13 16l9 8-10 10-2-7C31 47 18 46 10 35Z" fill="#182a2b"/>
+<path d="m12 35-7-7v16l8-6" fill="#182a2b"/>
+<path d="M21 35c8 4 15 4 23 0-4 9-16 11-23 0Z" fill="#f4f9e8"/>
+<path d="m28 37 3 5 3-5m1 0 3 4 2-5" fill="#182a2b"/>
+<circle cx="40" cy="29" r="2.4" fill="#c1f879"/>
+<path d="m23 26-2 5m7-7-2 6" fill="none" stroke="#b8dca8" stroke-linecap="round" stroke-width="1.7"/>
+</svg>

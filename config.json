@@ -6,5 +6,6 @@
   "narrative_keywords": [],
   "chains": ["solana", "ethereum", "base", "bsc", "arbitrum", "polygon", "avalanche", "optimism"],
   "pump_only": false,
+  "require_narrative": true,
   "watchlist": []
 }

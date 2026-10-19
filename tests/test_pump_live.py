@@ -193,6 +193,8 @@ class PumpTests(unittest.TestCase):
             os.chdir(directory)
             try:
                 Path('config.json').write_text('{}')
+                Path('.local').mkdir()
+                Path('.local/narrative-evidence.json').write_text(json.dumps({'testpump':dict(narrative='Fixture topic',observed_at=time.time(),sample_complete=True,mentions_5m=50,previous_mentions_5m=10,unique_authors_5m=30,engagements_5m=200,sources=['https://example.com/test-evidence'])}))
                 executor.journal=Path('.local/pump-pending-trade.json')
                 def fill(*args, **kwargs):
                     executor.journal.write_text('{"signature":"mock"}')

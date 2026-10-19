@@ -84,7 +84,7 @@ function renderLaunches() {
   $('visible-count').textContent=`${tokens.length} tokens`;
   $('launch-total').textContent=store.total.toLocaleString();$('launch-minute').textContent=store.recentCount().toLocaleString();
   more.classList.toggle('hidden',tokens.length<=pageSize);
-  $('retained').textContent=`Showing ${Math.min(tokens.length,pageSize)} of ${store.items.length} retained · max 200`;
+  $('retained').textContent=`Showing ${Math.min(tokens.length,pageSize)} of ${store.items.length} retained · max 1000`;
 }
 function scheduleRender(){if(renderTimer===null)renderTimer=setTimeout(renderLaunches,250);}
 for(const id of ['search','age','sort'])$(id).addEventListener(id==='search'?'input':'change',()=>{pageSize=60;renderLaunches();});
@@ -115,6 +115,7 @@ const feed=new PumpLaunchFeed.Connection({
 });
 $('pause-feed').onclick=()=>{if(feed.stopped)feed.start();else feed.stop();};
 $('reconnect').onclick=()=>feed.reconnect();
+$('retry-art').onclick=()=>artwork.retry();
 feed.start();renderLaunches();
 function renderWhales(){
   $('whale-timeline').replaceChildren(...whaleEvents.map(alertNode));
@@ -146,7 +147,7 @@ async function refreshBot() {
     const rows=(d.candidates||[]).slice().sort((a,b)=>b.score-a.score).map(x=>{
       const row=node('tr',''), name=node('td','');name.append(node('strong',x.symbol||'Unknown'),node('div',x.chain||'solana','symbol'));
       name.title=x.token_address||x.address;const failed=Object.entries(x.checks||{}).filter(([,v])=>!v).map(([k])=>k).join(', ');
-      row.append(name,node('td',Number(x.price).toPrecision(5)),node('td',Number(x.score).toFixed(1)),node('td',x.eligible?'WATCH':failed,x.eligible?'lime':''));return row;
+      row.append(name,node('td',Number(x.price).toPrecision(5)),node('td',Number(x.score).toFixed(1)),node('td',x.eligible?'WATCH':failed+(x.narrative_reason?' · '+x.narrative_reason:''),x.eligible?'lime':''));return row;
     });
     if(!rows.length){const r=node('tr',''),cell=node('td','No scanner report. Fresh launches remain available in Discover.');cell.colSpan=4;r.append(cell);rows.push(r);}$('markets').replaceChildren(...rows);
     const holdings=(d.positions||[]).map(p=>node('div',`${p.symbol||p.address} · ${p.chain||'solana'} · entry cost ${money(p.spent)} · entry price ${Number(p.entry).toPrecision(5)}`,'position'));
@@ -160,3 +161,47 @@ async function refreshBot() {
   }
 }
 refreshBot();setInterval(refreshBot,3000);
+
+let depositAddress=null;
+$('copy-deposit').onclick=async()=>{if(!depositAddress)return;try{await navigator.clipboard.writeText(depositAddress);$('copy-deposit').textContent='Address copied ✓';}catch(_){$('copy-deposit').textContent='Select and copy the full address above';}};
+function positionsInto(id,data){
+  const rows=(data.positions||[]).map(p=>node('div',`${p.symbol||p.address} · entry cost ${money(p.spent)} · last reported price ${Number(p.last_price).toPrecision(5)}`,'position'));
+  if(!rows.length)rows.push(node('p','No open positions reported.','side-note'));$(id).replaceChildren(...rows);
+}
+function modeInto(prefix,data){
+  const stale=!data.time||Date.now()/1000-data.time>Math.max(120,2*(data.interval_seconds||60));
+  $(prefix+'-equity').textContent=money(data.equity);$(prefix+'-count').textContent=(data.positions||[]).length;
+  $(prefix+'-state').textContent=data.error?'Stopped':stale?'Offline':data.halted?'Halted':prefix==='paper'?'Paper running':'Live report';
+  $(prefix+'-status').textContent=data.error|| (stale?'No fresh process report. Starting the dashboard does not start this trading process.':'Updated '+new Date(data.time*1000).toLocaleTimeString()+'. Entries require fresh narrative measurements; these do not guarantee runners.');
+  if(prefix==='live'){
+    $('live-limit').textContent=money(data.daily_loss_usd);
+    if(data.execution_timing_ms)$('live-timing').textContent='Last measured processing: '+Object.entries(data.execution_timing_ms).map(([k,v])=>k+' '+v+' ms').join(' · ')+'. Future timings vary.';
+  }
+  positionsInto(prefix+'-positions',data);
+  $(prefix+'-alerts').replaceChildren(...(data.alerts||[]).slice(-15).reverse().map(alertNode));
+}
+function communityImage(url){return typeof url==='string'&&/^\/api\/community-image\?id=[a-f0-9]{64}$/.test(url)?url:MarketExtras.imageURL(url);}
+function communityCard(post){
+  const card=node('article','','community-post'),header=node('div','','community-author');
+  const avatar=communityImage(post.avatar);if(avatar){const img=document.createElement('img');img.src=avatar;img.alt='Author profile image';img.referrerPolicy='no-referrer';img.onerror=()=>img.remove();header.append(img);}
+  const who=node('div','');who.append(node('strong',post.author||post.username||'Unknown author'),node('div',`${post.source||'External'} · ${new Date(post.time*1000).toLocaleString()}`,'symbol'));header.append(who);
+  card.append(header,node('p',post.text||''));
+  let image=communityImage(post.image);
+  if(!image&&post.mint){const token=store.items.find(t=>t.mint===post.mint)||{mint:post.mint};image=artwork.get(token);}
+  if(image){const img=document.createElement('img');img.src=image;img.alt='Unverified callout or token artwork';img.className='community-media';img.referrerPolicy='no-referrer';img.loading='lazy';img.onerror=()=>img.remove();card.append(img);}
+  if(post.mint)card.append(node('small',post.mint));
+  const source=MarketExtras.imageURL(post.source_url);if(source){const link=node('a','Open original callout ↗','button small');link.href=source;link.target='_blank';link.rel='noopener noreferrer';card.append(link);}
+  return card;
+}
+async function refreshSections(){
+  const results=await Promise.allSettled(['/api/status?mode=paper','/api/status?mode=live','/api/wallet','/api/community'].map(async url=>{const response=await fetch(url,{cache:'no-store'});if(!response.ok)throw Error('status');return response.json();}));
+  if(results[0].status==='fulfilled')modeInto('paper',results[0].value);
+  if(results[1].status==='fulfilled')modeInto('live',results[1].value);
+  if(results[2].status==='fulfilled'){depositAddress=results[2].value.address;$('deposit-address').textContent=depositAddress||results[2].value.status;$('copy-deposit').disabled=!depositAddress;}
+  if(results[3].status==='fulfilled'){
+    const data=results[3].value;$('community-status').textContent=data.status+(data.updated_at?' · last collector update '+new Date(data.updated_at*1000).toLocaleString():'');
+    const rows=(data.items||[]).slice().reverse().slice(0,50).map(communityCard);
+    if(!rows.length)rows.push(node('div','No source posts fetched. Configure authorized X / Telegram access; posts and performance are not fabricated.','empty'));$('community-items').replaceChildren(...rows);
+  }
+}
+refreshSections();setInterval(refreshSections,15000);

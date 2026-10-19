@@ -157,6 +157,16 @@ class NetworkTests(unittest.TestCase):
                     data=json.load(response)
                     self.assertEqual(data['mode'],'paper')
                     self.assertNotIn('cooldowns',data)
+                with opener.open(base+'/api/status?mode=live') as response:
+                    self.assertEqual(json.load(response)['mode'],'waiting')
+                with opener.open(base+'/shark.svg') as response:
+                    self.assertEqual(response.headers['Content-Type'],'image/svg+xml')
+                with patch('artwork.resolve',return_value={'image':'https://ipfs.io/ipfs/test','status':'ready'}):
+                    with opener.open(base+'/api/artwork?mint=So11111111111111111111111111111111111111112') as response:
+                        self.assertTrue(json.load(response)['proxy'].startswith('/api/token-image?url='))
+                with self.assertRaises(urllib.error.HTTPError) as caught:
+                    opener.open(base+'/api/token-image?url=https%3A%2F%2F127.0.0.1%2Fsecret')
+                self.assertEqual(caught.exception.code,404)
                 with opener.open(base+'/') as response:
                     self.assertIn(b'Crypto callouts',response.read())
                     policy=response.headers['Content-Security-Policy']

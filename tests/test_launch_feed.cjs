@@ -27,6 +27,15 @@ test('filters names and addresses, age and cap without inventing quotes',()=>{
   assert.equal(store.select({age:2,now:6000}).length,1);
   assert.equal(store.select({sort:'cap'})[0].name,'Second');
 });
+test('retains 1000 launches and removes the oldest only after capacity',()=>{
+  const store=new Store();
+  for(let i=0;i<1001;i++){
+    let value=i,key='';do{key='123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'[value%58]+key;value=Math.floor(value/58);}while(value);
+    store.add({...creation,mint:'1'.repeat(32-key.length)+key},i);
+  }
+  assert.equal(store.items.length,1000);assert.equal(store.total,1001);
+  assert.equal(store.items.at(-1).receivedAt,1);
+});
 
 function fixture(){
   const sockets=[],statuses=[],tokens=[],timers=[];

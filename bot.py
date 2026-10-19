@@ -9,6 +9,7 @@ import urllib.parse
 from pathlib import Path
 
 from callouts import publish
+import narrative
 
 API = "https://api.dexscreener.com"
 DEFAULTS = dict(capital=1000.0, position_fraction=0.02, daily_loss_fraction=0.02,
@@ -18,7 +19,7 @@ DEFAULTS = dict(capital=1000.0, position_fraction=0.02, daily_loss_fraction=0.02
                 take_profit_fraction=0.30, trailing_fraction=0.15,
                 fee_fraction=0.01, slippage_fraction=0.02, interval_seconds=60,
                 max_hold_hours=6, narrative_keywords=[], chains=["solana"],
-                pump_only=True, watchlist=[])
+                pump_only=True, watchlist=[], require_narrative=False)
 
 SUPPORTED_CHAINS = {"solana", "ethereum", "base", "bsc", "arbitrum", "polygon", "avalanche", "optimism"}
 
@@ -58,6 +59,8 @@ def validate(c):
         raise ValueError("chains must contain supported DexScreener chain IDs")
     if not isinstance(c["pump_only"], bool):
         raise ValueError("pump_only must be boolean")
+    if not isinstance(c["require_narrative"], bool):
+        raise ValueError("require_narrative must be boolean")
     if not isinstance(c["watchlist"], list):
         raise ValueError("watchlist must be a list")
     for token in c["watchlist"]:
@@ -172,7 +175,7 @@ def scan(state, c):
             pair = max(pairs, key=lambda p: number(p.get("liquidity", {}).get("usd")))
             output.append(assess(pair, c, time.time()))
         time.sleep(0.25)
-    return output
+    return narrative.enforce(output, c, time.time())
 
 
 def main():

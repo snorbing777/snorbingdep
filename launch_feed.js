@@ -2,7 +2,7 @@
 (function (root) {
   'use strict';
   const ENDPOINT = 'wss://pumpportal.fun/api/data';
-  const LIMIT = 200;
+  const LIMIT = 1000;
   function positive(value) {
     if (value === null || value === undefined || value === '') return null;
     const n = Number(value);

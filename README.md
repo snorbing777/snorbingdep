@@ -227,7 +227,7 @@ snapshot, not a live market quote. Token artwork is unverified metadata, with ge
 The feed has search, age filters, sorting, pause/resume and automatic reconnect
 with bounded backoff. This is **not a complete history or a guarantee of every
 pump.fun launch**: no backfill is available, interruptions/pauses can miss events,
-and closing the tab clears the session. Up to 200 received launches are retained
+and closing the tab clears the session. Up to 1000 received launches are retained
 in the page, with additional deduplication bounded to recent history. Keep one
 feed tab open where possible. Optional launch sounds group rapid events; trade/warning callouts keep their existing notification behavior.
 
@@ -266,11 +266,10 @@ is invoked by these UI checks.
 ## Token pictures and sound alerts
 
 Token cards use a direct HTTPS image from the creation event where available,
-or fetch its metadata URI through supported IPFS/Arweave gateways. Images can
+or resolve its metadata through the local read-only artwork service, with supported IPFS/Arweave gateway retries and an indexed-market fallback. Images can
 load after the card appears. Broken, missing or unsupported artwork falls back
 to initials. Logos are supplied by token creators and are not identity checks.
-Metadata downloads omit credentials/referrers, are size/time/concurrency limited,
-and are read only as JSON. Images use no-referrer loading; the image host can
+The artwork service fetches only allowlisted HTTPS gateways, validates redirects, limits bytes/time/concurrency, and proxies supported raster images to avoid browser CORS failures. Unsupported or unavailable images retain a fallback; Retry pictures retries client lookups. Metadata is read only as JSON. Images use no-referrer loading; the image host can
 still see the browser's request. Arbitrary metadata hosts, local-address images,
 non-HTTPS URLs and embedded HTML are not accepted.
 
@@ -293,7 +292,7 @@ This is a trade-size filter, not identification of wealthy wallets, proof of
 organic buying, all-token coverage, or a buy recommendation. Provider access
 and trade-stream availability apply; a rejected subscription is displayed.
 Disable monitoring and reconnect to resume creation-only discovery if needed.
-It never signs transactions, connects a wallet or authorizes payments. Actual
+These alert features never sign transactions, connect a wallet or authorize payments. Actual
 production provider coverage and audible delivery on the user's Mac remain
 unverified. Browser tests use mocked metadata and trade events, and verify Web
 Audio scheduling rather than human hearing.
@@ -303,3 +302,121 @@ With Playwright installed and a test dashboard on port 8766,
 `node tests/artwork_sound_browser.cjs` exercises image success/fallback, user
 audio activation, new-launch cues, large-buy thresholds, duplicate suppression,
 mute and subscription opt-out using fixtures only.
+
+
+## Shark dashboard, separate ledgers and narrative entry gating
+
+The shark logo is a local SVG, and discovery retains 1,000 received launches
+with paginated rendering. It still does not backfill missed events or guarantee
+all-token coverage. Paper trading and Live money have distinct sections and
+read separate snapshot files; mode mismatches are rejected. Start paper mode:
+
+```sh
+bash "Start Paper Trading.command"
+```
+
+The primary pump live path now **requires fresh narrative evidence for every
+new entry**, including a check immediately before preparing the trade. The
+checked-in paper configuration also requires it. Existing exit checks continue
+when narrative data is missing. `.local/narrative-evidence.json` must contain
+per-mint real measurements: named narrative, observation timestamp (<=300s old),
+complete sample flag, source URLs, at least 30 mentions / 20 distinct authors /
+100 engagements over 5 minutes, and at least 2.5x the preceding 5-minute count.
+These are conservative heuristics, not a model proven to select runners or
+detect bots, wash activity, coordinated shilling or future profits. Missing,
+stale or incomplete measurements prevent entries; keywords alone cannot pass.
+The older standalone `live.py` Jupiter path is not this gated primary workflow.
+
+`social_feed.py --measure-topics` can measure configured X topic discussions
+through the official recent-search API. Copy `narrative_topics.example.json` to
+`narrative_topics.json` and replace its placeholders with at most five exact
+mint/topic pairs. Sampling is explicitly labeled and truncated samples do not
+pass. Broad narrative discussion may be unrelated to a particular token. No
+analytics API or Telegram-based audience measurement has been invented; those
+require a specified provider and authorized access.
+
+## Community callouts: authorized sources only
+
+The Callouts tab displays source authors, original links, text, timestamps,
+attached pictures and matched contract addresses when present. It does not
+execute trades from influencer posts. Identities and profitability are unverified.
+`social_settings.json` lists initial X handle candidates `blknoiz06`, `orangie`,
+and `cupsey`; review those identities before trusting the feed.
+
+The X collector requires your own official API entitlement and `X_BEARER_TOKEN`
+configured securely on the machine running it. It uses the recent-search API,
+not scraping or a login/password. Calls consume that API's quota. Run:
+
+```sh
+.venv/bin/python social_feed.py --measure-topics
+```
+
+For `@BullishCallsPremium`, configure a dedicated `TELEGRAM_BOT_TOKEN` securely
+and obtain the channel administrator's permission for that bot to receive
+channel posts. A username or personal subscription alone does not grant Bot API
+access. No private/premium access bypass is implemented. The collector reads
+only that configured channel's authorized updates and sends no messages:
+
+```sh
+.venv/bin/python telegram_feed.py
+```
+
+Run collectors in separate terminals, or choose one using Start Social
+Feeds.command. The bot must not already be consumed by another getUpdates
+process. Telegram thumbnails are cached under ignored `.local/telegram-media`;
+the token-containing Telegram download URL is never exposed to the browser.
+A successful empty getUpdates response does not prove channel membership.
+No source posts are fabricated when credentials/access are missing.
+
+The exact pump.fun callouts page/API has **not** been identified or integrated.
+A public URL and supported source are still required. Telegram, X source access
+and any analytics provider remain external prerequisites; their availability
+and actual content have not been validated in this environment. Cloud secrets
+do not automatically appear in your Mac's Terminal: configure local credentials
+securely too, never paste them in chat, commit them or put them into shell history.
+
+## Deposit / withdraw through Terminal
+
+The Live money section shows the separate wallet's public deposit address and
+copy control; no private key or signing endpoint is served. For instructions:
+
+```sh
+.venv/bin/python wallet_manage.py deposit
+```
+
+Send **native SOL on Solana** from Phantom to that public address and verify a
+small test via Check Funding.command. Stop trading before external funding
+changes. For a withdrawal, stop the bot and manage/close positions first:
+
+```sh
+# Replace destination and amount. This previews only; it does not broadcast.
+.venv/bin/python wallet_manage.py withdraw --to YOUR_PHANTOM_PUBLIC_ADDRESS --sol 0.01
+```
+
+Review the full destination and quoted network fee. To submit, repeat the
+reviewed command with `--execute`, then type `WITHDRAW` in the local prompt.
+Use `--all` instead of `--sol` for remaining native SOL minus the quoted fee.
+The helper builds a single explicit System Program transfer locally, verifies
+mainnet and fees, runs simulation, journals before sending, and checks confirmed
+debits. It blocks active bot locks, pending signatures and open ledger positions.
+Token balances are not liquidated automatically. An ambiguous withdrawal leaves
+`.local/withdraw-pending.json`; do not delete it blindly or resubmit. No funded
+withdrawal has been verified here. A terminal preview/test is not execution proof.
+
+After a deposit while a ledger already exists, preview:
+
+```sh
+.venv/bin/python wallet_manage.py reconcile
+```
+
+Add `--execute` to apply the reviewed current balance, capped to a $100 tracked
+budget at the reference price. Reconciliation does not reset daily counters,
+clear a daily halt or remove the pause marker. Withdrawals halt new trading;
+manage the remaining funds and existing daily halt before resuming. Never delete
+ledger files to reset limits.
+
+Transaction logs now record build/simulation/broadcast/confirmation durations.
+This makes latency measurable, not zero. Network conditions, provider quotas,
+RPC speed, fees, confirmation time and the scanner's polling interval still
+apply. The pipeline preserves serial accounting, preflight checks and pending
+journals; it is not a guaranteed first-block sniper or a production-verified bot.

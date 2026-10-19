@@ -17,28 +17,30 @@
     constructor({fetchImpl=root.fetch,onChange=()=>{}}={}){this.fetch=(...args)=>fetchImpl.call(root,...args);this.onChange=onChange;this.cache=new Map();this.queue=[];this.active=0;}
     get(token){
       if(this.cache.has(token.mint))return this.cache.get(token.mint).url;
-      const image=imageURL(token.image),uri=metadataURL(token.uri);
-      this.cache.set(token.mint,{url:image,pending:!image&&Boolean(uri)});
-      if(this.cache.size>256)this.cache.delete(this.cache.keys().next().value);
-      if(!image&&uri){if(this.queue.length>=128){const old=this.queue.shift();this.cache.set(old.mint,{url:null,pending:false});}this.queue.push({mint:token.mint,uri});this.pump();}
+      const image=imageURL(token.image),uri=typeof token.uri==='string'?token.uri.slice(0,2048):'';
+      this.cache.set(token.mint,{url:image,token,pending:!image,attempted:false});
+      if(this.cache.size>1200)this.cache.delete(this.cache.keys().next().value);
+      if(!image)this.enqueue(token.mint,uri);
       return image;
     }
-    reject(mint){this.cache.set(mint,{url:null,pending:false});}
+    enqueue(mint,uri){if(this.queue.length>=1000){const old=this.queue.shift();this.cache.set(old.mint,{url:null,pending:false});}this.queue.push({mint,uri});this.pump();}
+    reject(mint){const old=this.cache.get(mint)||{};if(old.backup){this.cache.set(mint,{...old,url:old.backup,backup:null});this.onChange();return;}this.cache.set(mint,{...old,url:null,pending:!old.attempted});if(!old.attempted)this.enqueue(mint,old.token?.uri||'');}
+    retry(){for(const [mint,value] of this.cache)if(!value.url&&!value.pending)this.cache.delete(mint);this.onChange();}
     async pump(){
       if(this.active>=4||!this.queue.length)return;
       const job=this.queue.shift();this.active++;
-      const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),5000);
+      const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),15000);
       try{
-        const response=await this.fetch(job.uri,{signal:controller.signal,credentials:'omit',referrerPolicy:'no-referrer',redirect:'follow'});
-        if(response.url&&!metadataURL(response.url))throw Error('redirect');
+        const response=await this.fetch('/api/artwork?mint='+encodeURIComponent(job.mint)+'&uri='+encodeURIComponent(job.uri),{signal:controller.signal,credentials:'omit',referrerPolicy:'no-referrer',redirect:'error'});
         if(!response.ok||!response.body)throw Error('metadata');
         const reader=response.body.getReader(),chunks=[];let size=0;
         while(true){const {done,value}=await reader.read();if(done)break;size+=value.byteLength;if(size>262144){await reader.cancel();throw Error('oversize');}chunks.push(value);}
         const raw=new Uint8Array(size);let offset=0;for(const chunk of chunks){raw.set(chunk,offset);offset+=chunk.byteLength;}
         const metadata=JSON.parse(new TextDecoder().decode(raw));
-        this.cache.set(job.mint,{url:imageURL(metadata.image),pending:false});
-      }catch(_){this.cache.set(job.mint,{url:null,pending:false});}
-      finally{clearTimeout(timer);while(this.cache.size>256)this.cache.delete(this.cache.keys().next().value);this.active--;this.onChange();this.pump();}
+        const proxy=typeof metadata.proxy==='string'&&metadata.proxy.startsWith('/api/token-image?url=')?metadata.proxy:null;
+        this.cache.set(job.mint,{url:proxy||imageURL(metadata.image),backup:proxy?imageURL(metadata.image):null,pending:false,attempted:true});
+      }catch(_){this.cache.set(job.mint,{url:null,pending:false,attempted:true});}
+      finally{clearTimeout(timer);while(this.cache.size>1200)this.cache.delete(this.cache.keys().next().value);this.active--;this.onChange();this.pump();}
     }
   }
   class WhaleTracker{
