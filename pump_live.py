@@ -4,6 +4,8 @@ import base64
 import copy
 import json
 import os
+import socket
+import ssl
 import time
 import urllib.request
 import urllib.error
@@ -320,7 +322,19 @@ def check_failure(stage, exc):
         elif exc.code in (401, 403):
             reason += " Access was denied; check the service credentials and network restrictions."
     elif isinstance(exc, (urllib.error.URLError, TimeoutError, OSError)):
-        reason = "Network/TLS connection failed or timed out. Check connectivity and the configured service."
+        cause = exc.reason if isinstance(exc, urllib.error.URLError) else exc
+        if isinstance(cause, ssl.SSLCertVerificationError):
+            reason = "TLS certificate verification failed. For python.org macOS installs, run the matching Python Install Certificates.command; keep TLS verification enabled."
+        elif isinstance(cause, socket.gaierror):
+            reason = "DNS lookup failed. Check the configured RPC hostname and your internet/DNS connection."
+        elif isinstance(cause, (TimeoutError, socket.timeout)):
+            reason = "Connection timed out. Check reachability or use a reachable HTTPS mainnet RPC."
+        elif isinstance(cause, ConnectionRefusedError):
+            reason = "Connection refused. Check the configured service and local network/proxy settings."
+        elif isinstance(cause, ssl.SSLError):
+            reason = "TLS handshake failed. Check Python/OpenSSL and network/proxy trust configuration; keep certificate verification enabled."
+        else:
+            reason = "Connection failed (" + type(cause).__name__ + "). Check connectivity and configured network/proxy settings."
     elif stage == "Solana network verification":
         reason = "The RPC returned an error, an unexpected response or the wrong network. Use Solana mainnet."
     elif stage == "SOL/USD reference feed":

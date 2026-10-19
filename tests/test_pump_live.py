@@ -162,6 +162,23 @@ class PumpTests(unittest.TestCase):
         self.assertNotIn('private provider detail',str(caught.exception))
         executor.trade.assert_not_called()
 
+    def test_tls_diagnostic_identifies_certificate_failure(self):
+        import ssl
+        import urllib.error
+        exc=urllib.error.URLError(ssl.SSLCertVerificationError(1,'private-url-must-not-appear'))
+        message=pump_live.check_failure('Solana network verification',exc)
+        self.assertIn('TLS certificate verification failed',message)
+        self.assertIn('Install Certificates.command',message)
+        self.assertNotIn('private-url-must-not-appear',message)
+
+    def test_dns_and_timeout_diagnostics_are_distinct(self):
+        import socket
+        import urllib.error
+        for exc,expected in ((socket.gaierror(-2,'secret-host'), 'DNS lookup failed'),(TimeoutError('secret-url'),'Connection timed out')):
+            message=pump_live.check_failure('Solana network verification',urllib.error.URLError(exc))
+            self.assertIn(expected,message)
+            self.assertNotIn('secret-',message)
+
     def test_autonomous_cycle_persists_actual_fill_and_live_callout(self):
         import argparse
         import callouts
