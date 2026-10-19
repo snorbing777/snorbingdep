@@ -1,0 +1,10 @@
+{
+  "capital": 100,
+  "position_fraction": 0.02,
+  "daily_loss_fraction": 0.15,
+  "max_positions": 3,
+  "narrative_keywords": [],
+  "chains": ["solana", "ethereum", "base", "bsc", "arbitrum", "polygon", "avalanche", "optimism"],
+  "pump_only": false,
+  "watchlist": []
+}

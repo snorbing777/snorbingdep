@@ -1,0 +1,78 @@
+UNATTENDED REAL TRADING ON YOUR MAC — EXPERIMENTAL
+
+This version signs and submits real Solana transactions. It is not a paper
+trading launcher. Fund only a separate wallet with money you can afford to lose.
+End-to-end funded execution has NOT been verified by the developer in this
+environment. Tests use mocked providers; no profitability has been demonstrated.
+
+1. Install Python 3.12 or newer from python.org if necessary.
+2. Extract this archive into a NEW folder; preserve any previous .local folder
+   and do not replace or delete a funded trading-wallet file.
+3. Double-click Set Up Mac.command. If macOS blocks it, inspect the script and
+   run it from Terminal with: bash "Set Up Mac.command"
+4. Setup creates a NEW local wallet at:
+   ~/.config/snorbingdep/trading-wallet.json
+   It prints only the public address and never overwrites an existing wallet.
+   Keep the wallet file private and backed up securely; losing it loses access
+   to that wallet's funds. Never paste it into chat or put it in the project.
+5. In Phantom, use Send to transfer a SMALL TEST amount of SOL on SOLANA to the
+   printed public address. The bot uses that separate wallet directly. It does
+   not control your Phantom extension or require your pump.fun account login.
+   A separate wallet is a separate on-chain identity from your Phantom address.
+6. After sending SOL, double-click Check Funding.command. Supply only the
+   trading wallet PUBLIC address and Phantom transfer PUBLIC signature. It
+   verifies a finalized native SOL credit and separately shows current balance.
+   A successful deposit check is not a guarantee funds were never spent.
+   Then open Terminal in this folder and run:
+   .venv/bin/python pump_live.py --check
+   This checks wallet/RPC connectivity without sending a trade. It does not
+   prove that PumpPortal quotes, signing or funded swaps will work.
+7. Review README.md and pump_live.py. When prepared to risk actual funds,
+   double-click Start Live Trading.command, review the check, then type LIVE.
+   Keep this window running. Ctrl-C stops the bot but DOES NOT close positions.
+8. Double-click Open Live Dashboard.command for confirmed fills and callouts.
+   If the browser opens before the server is ready, refresh the page.
+   For native Mac notifications, open another Terminal in this folder and run:
+   python3 desktop_notify.py --test
+   python3 desktop_notify.py
+
+CURRENT BEHAVIOR
+- $100 initial tracked budget cap (valued in SOL); ~2% allocation per entry.
+- New entry total debit capped at $2 INCLUDING worst-case allowed rent/fees,
+  valued at the current SOL/USD reference quote. Max combined open entry cost
+  $6; max daily total buy debits $100. These are software checks, not on-chain
+  USD limits or guaranteed loss protection.
+- A 0.01 SOL reserve is excluded from new buys. Exits can consume reserve fees.
+- Wallet SOL balances are checked at startup, each scan and before trades.
+  Unexpected deposits/withdrawals halt trading for reconciliation.
+- Double-click Pause New Buys.command to block new entries while allowing the
+  running bot to attempt exits. In-flight transactions may still execute.
+  To resume after reviewing positions, remove ONLY .local/PAUSE_BUYS.
+- Old ledgers with trading history require manual reconciliation before this
+  upgrade; never delete the ledger to reset spending controls.
+- Three positions maximum. Full profit exit at 30%, stop trigger at 10%,
+  15% trailing stop, six-hour maximum hold. These are NOT guaranteed prices.
+- $15 daily equity stop trigger, including changes in the tracked SOL cash
+  value and actual trade fees/rent. Losses can exceed that amount.
+- Minimum startup wallet balance: 0.01 SOL; keep SOL available for fees/rent.
+- DexScreener-discovered Solana pump-suffix tokens with the configured market
+  filters. This is NOT first-block launch sniping or coverage of every pump.fun
+  token. Unindexed bonding-curve launches may never appear.
+- PumpPortal's trade-local service constructs transactions; the bot signs
+  locally after RPC simulation and balance/authority checks. This still trusts
+  the provider and RPC and is not an independent audit of every instruction.
+- Default public Solana RPC can be rate-limited. Set SOLANA_RPC_URL to your own
+  HTTPS mainnet RPC in your local terminal if needed. Do not share RPC secrets.
+- No Phantom private key, seed phrase, pump.fun password or Jupiter API key is
+  required for this execution path. Only the separate local signer is used.
+- Robinhood Chain and other networks are NOT live execution targets here.
+
+IF THE BOT STOPS
+Inspect open positions manually. Never delete .local/pump-pending-trade.json
+blindly. Its signature may already have executed. Reconcile the on-chain fill
+and .local/pump-live-state.json before clearing a pending journal or restarting.
+Do not alter trading-wallet holdings externally while the bot is running.
+
+Required internet access: api.dexscreener.com, pumpportal.fun and your mainnet
+RPC host (default api.mainnet-beta.solana.com). This cloud environment currently
+blocks some of those requests; local Mac connectivity must be checked separately.
