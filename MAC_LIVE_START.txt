@@ -76,3 +76,13 @@ Do not alter trading-wallet holdings externally while the bot is running.
 Required internet access: api.dexscreener.com, pumpportal.fun and your mainnet
 RPC host (default api.mainnet-beta.solana.com). This cloud environment currently
 blocks some of those requests; local Mac connectivity must be checked separately.
+
+NEW: LAUNCH DISCOVERY WITHOUT FUNDING
+The redesigned Discover tab streams newly received pump.fun creation events
+through PumpPortal as soon as the dashboard is open. Start only Open Live
+Dashboard.command to browse; do not start the trading process just to see coins.
+Search, sort, pause/reconnect, and open token pages from the launch cards.
+Up to 200 recent received launches remain in the tab; no historical backfill.
+Interruptions can miss coins. Feed status is separate from trading bot status.
+To update: Control-C in the dashboard terminal, git pull --ff-only, then
+bash "Open Live Dashboard.command". Keep that Terminal process running.

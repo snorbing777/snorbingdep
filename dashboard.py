@@ -1,6 +1,7 @@
 """Loopback-only, read-only dashboard. Never exposes wallet signing operations."""
 import argparse
 import json
+import webbrowser
 from functools import partial
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -27,6 +28,9 @@ class Handler(BaseHTTPRequestHandler):
         if route == "/":
             body = Path(__file__).with_name("dashboard.html").read_bytes()
             content_type = "text/html; charset=utf-8"
+        elif route in ("/launch_feed.js", "/dashboard.js"):
+            body = Path(__file__).with_name(route[1:]).read_bytes()
+            content_type = "text/javascript; charset=utf-8"
         elif route == "/api/status":
             try:
                 body = json.dumps(public_snapshot(self.snapshot)).encode()
@@ -42,7 +46,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'")
+        self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self' wss://pumpportal.fun; frame-ancestors 'none'; base-uri 'none'")
         self.end_headers()
         self.wfile.write(body)
 
@@ -54,9 +58,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--snapshot", type=Path, default=Path(".local/state.dashboard.json"))
+    parser.add_argument("--open-browser", action="store_true")
     args = parser.parse_args()
     server = ThreadingHTTPServer(("127.0.0.1", args.port), partial(Handler, snapshot=args.snapshot))
-    print(f"Dashboard listening on local port {args.port}; use the browser on the same machine or an SSH tunnel.", flush=True)
+    print(f"Dashboard listening on local port {server.server_port}; keep this terminal running. Discovery requires no trading wallet.", flush=True)
+    if args.open_browser:
+        webbrowser.open(f"http://127.0.0.1:{server.server_port}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

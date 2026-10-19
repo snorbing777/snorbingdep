@@ -208,3 +208,58 @@ and is checked again before signing. The bot can still attempt exits; an
 in-flight transaction may execute. Remove only that marker to resume entries.
 Older live ledgers with trading history need explicit manual reconciliation
 before migration. Preserve wallet files, ledger history and pending journals.
+
+## Live pump.fun launch discovery
+
+The redesigned **Discover** tab opens a read-only browser WebSocket to
+`wss://pumpportal.fun/api/data` and subscribes to `subscribeNewToken`.
+It displays new creation messages as they arrive, independently of the trading
+scanner and wallet. No funding, private key, or running trading process is
+required. Only valid creation events become cards; duplicate mints are ignored.
+Names and tickers render as text, not HTML, and external metadata is not fetched.
+
+Cards show provider-supplied launch market-cap estimates in SOL, the reported
+creation trade's SOL amount when present, received age, a full-address copy
+control and a link to the token on pump.fun. Missing numbers remain unknown.
+These are unreviewed launches, not recommendations. The market cap is a creation
+snapshot, not a live market quote. Token icons are generated initials, not
+verified project logos. Signals and Positions are separate tabs for bot reports.
+
+The feed has search, age filters, sorting, pause/resume and automatic reconnect
+with bounded backoff. This is **not a complete history or a guarantee of every
+pump.fun launch**: no backfill is available, interruptions/pauses can miss events,
+and closing the tab clears the session. Up to 200 received launches are retained
+in the page, with additional deduplication bounded to recent history. Keep one
+feed tab open where possible. Launch notifications are not sent for every coin;
+trade/warning callouts keep their existing notification behavior.
+
+To update an existing Mac install, stop only the dashboard Terminal process with
+Control-C, then run these commands inside the project folder:
+
+```sh
+git pull --ff-only
+bash "Open Live Dashboard.command"
+```
+
+Leave the Terminal running. This starts discovery and the dashboard only; it
+**does not start live trading**. A stale/offline trading report does not stop the
+launch stream. The browser must reach `pumpportal.fun`; errors/reconnects and
+coverage gaps are displayed. If a connection remains unavailable, no launches
+are invented as placeholders. Cloud provider requests remained blocked during
+implementation, so real production-stream delivery still needs validation on
+the user's network. Automated browser checks used explicit test events.
+
+Optional development checks for the new JavaScript feed (Node.js required only
+for these tests, not for running the dashboard):
+
+```sh
+node --test tests/test_launch_feed.cjs
+```
+
+`tests/dashboard_browser.cjs` additionally exercises the UI with Playwright and
+a mocked WebSocket. Start a separate `python3 dashboard.py --port 8766` first.
+Install Playwright/browser tooling in your development environment, then run
+`node tests/dashboard_browser.cjs`; `DASHBOARD_URL` and `BROWSER_PATH` can select
+a test server or existing browser executable. Screenshots contain labeled test
+tokens and are written to the temporary directory. No wallet or trading endpoint
+is invoked by these UI checks.

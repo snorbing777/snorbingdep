@@ -159,6 +159,13 @@ class NetworkTests(unittest.TestCase):
                     self.assertNotIn('cooldowns',data)
                 with opener.open(base+'/') as response:
                     self.assertIn(b'Crypto callouts',response.read())
+                    policy=response.headers['Content-Security-Policy']
+                    self.assertIn("script-src 'self'",policy)
+                    self.assertIn('wss://pumpportal.fun',policy)
+                for script in ('/launch_feed.js','/dashboard.js'):
+                    with opener.open(base+script) as response:
+                        self.assertEqual(response.headers['Content-Type'],'text/javascript; charset=utf-8')
+                        self.assertGreater(len(response.read()),100)
                 for route in ('/live.py','/.local/live-state.json','/../config.json'):
                     with self.assertRaises(urllib.error.HTTPError) as caught:
                         opener.open(base+route)
