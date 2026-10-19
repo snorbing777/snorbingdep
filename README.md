@@ -216,22 +216,20 @@ The redesigned **Discover** tab opens a read-only browser WebSocket to
 It displays new creation messages as they arrive, independently of the trading
 scanner and wallet. No funding, private key, or running trading process is
 required. Only valid creation events become cards; duplicate mints are ignored.
-Names and tickers render as text, not HTML, and external metadata is not fetched.
+Names and tickers render as text, not HTML. Artwork metadata is fetched only from supported public gateways; see below.
 
 Cards show provider-supplied launch market-cap estimates in SOL, the reported
 creation trade's SOL amount when present, received age, a full-address copy
 control and a link to the token on pump.fun. Missing numbers remain unknown.
 These are unreviewed launches, not recommendations. The market cap is a creation
-snapshot, not a live market quote. Token icons are generated initials, not
-verified project logos. Signals and Positions are separate tabs for bot reports.
+snapshot, not a live market quote. Token artwork is unverified metadata, with generated initials when unavailable. Signals and Positions are separate tabs for bot reports.
 
 The feed has search, age filters, sorting, pause/resume and automatic reconnect
 with bounded backoff. This is **not a complete history or a guarantee of every
 pump.fun launch**: no backfill is available, interruptions/pauses can miss events,
 and closing the tab clears the session. Up to 200 received launches are retained
 in the page, with additional deduplication bounded to recent history. Keep one
-feed tab open where possible. Launch notifications are not sent for every coin;
-trade/warning callouts keep their existing notification behavior.
+feed tab open where possible. Optional launch sounds group rapid events; trade/warning callouts keep their existing notification behavior.
 
 To update an existing Mac install, stop only the dashboard Terminal process with
 Control-C, then run these commands inside the project folder:
@@ -263,3 +261,45 @@ Install Playwright/browser tooling in your development environment, then run
 a test server or existing browser executable. Screenshots contain labeled test
 tokens and are written to the temporary directory. No wallet or trading endpoint
 is invoked by these UI checks.
+
+
+## Token pictures and sound alerts
+
+Token cards use a direct HTTPS image from the creation event where available,
+or fetch its metadata URI through supported IPFS/Arweave gateways. Images can
+load after the card appears. Broken, missing or unsupported artwork falls back
+to initials. Logos are supplied by token creators and are not identity checks.
+Metadata downloads omit credentials/referrers, are size/time/concurrency limited,
+and are read only as JSON. Images use no-referrer loading; the image host can
+still see the browser's request. Arbitrary metadata hosts, local-address images,
+non-HTTPS URLs and embedded HTML are not accepted.
+
+Click **Enable sounds** in the Sound & large buys panel to allow browser audio.
+A short chime confirms activation. Set volume or mute it at any time.
+New-launch tones have a short cooldown so bursts do not overlap continuously.
+No historical launches are replayed as sounds. Keep the page open; browser/OS
+audio settings and background-tab policies can suppress delivery.
+
+**Monitor large buys** is off by default. Enabling it subscribes to reported
+trades for the **25 most recent launches received in this tab**, using the same
+public PumpPortal WebSocket. As new tokens arrive, older subscriptions are
+removed; reconnect restores the current set. Set a minimum SOL size (default
+10 SOL). Only reported buys at/above the threshold trigger; sells, other tokens
+and duplicate signatures do not. A large-buy tone differs from the launch
+chime. Alerts appear in the panel even while muted. Rapid audible/pop-up alerts
+are grouped, with recent qualifying events retained in the panel.
+
+This is a trade-size filter, not identification of wealthy wallets, proof of
+organic buying, all-token coverage, or a buy recommendation. Provider access
+and trade-stream availability apply; a rejected subscription is displayed.
+Disable monitoring and reconnect to resume creation-only discovery if needed.
+It never signs transactions, connects a wallet or authorizes payments. Actual
+production provider coverage and audible delivery on the user's Mac remain
+unverified. Browser tests use mocked metadata and trade events, and verify Web
+Audio scheduling rather than human hearing.
+
+New tests: `node --test tests/test_launch_feed.cjs tests/test_market_extras.cjs`.
+With Playwright installed and a test dashboard on port 8766,
+`node tests/artwork_sound_browser.cjs` exercises image success/fallback, user
+audio activation, new-launch cues, large-buy thresholds, duplicate suppression,
+mute and subscription opt-out using fixtures only.

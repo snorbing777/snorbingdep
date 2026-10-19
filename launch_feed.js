@@ -14,6 +14,8 @@
     return {mint: message.mint, name: String(message.name || 'Unnamed token').slice(0, 100),
       symbol: String(message.symbol || 'TOKEN').slice(0, 24), receivedAt: now,
       marketCapSol: positive(message.marketCapSol), initialBuy: positive(message.initialBuy),
+      image: typeof message.image === 'string' ? message.image.slice(0,2048) : null,
+      uri: typeof message.uri === 'string' ? message.uri.slice(0,2048) : null,
       creatorSol: positive(message.solAmount), signature: typeof message.signature === 'string' ? message.signature : null};
   }
   class Store {
@@ -47,6 +49,7 @@
       this.setTimer = (fn, delay) => setTimer.call(root, fn, delay);
       this.clearTimer = id => clearTimer.call(root, id);
       this.stopped = true; this.attempt = 0; this.generation = 0; this.gap = false;
+      this.tradeTokens = [];
     }
     start() { if (!this.stopped) return; this.stopped = false; this.open(); }
     open() {
@@ -59,6 +62,7 @@
       socket.onopen = () => {
         if (this.stopped || generation !== this.generation) return;
         socket.send(JSON.stringify({method: 'subscribeNewToken'}));
+        if(this.tradeTokens.length)socket.send(JSON.stringify({method:'subscribeTokenTrade',keys:this.tradeTokens}));
         this.attempt = 0;
         this.onStatus({state: 'connected', gap: this.gap});
       };
@@ -94,6 +98,15 @@
       if (announce) this.onStatus({state: 'paused', gap: true});
     }
     reconnect() { this.stop(false); this.start(); }
+    setTradeTokens(tokens) {
+      const next=[...new Set(tokens.filter(t=>typeof t==='string'&&/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(t)))].slice(0,25);
+      const removed=this.tradeTokens.filter(t=>!next.includes(t)), added=next.filter(t=>!this.tradeTokens.includes(t));
+      this.tradeTokens=next;
+      if(!this.stopped && this.socket?.readyState===1) {
+        if(removed.length)this.socket.send(JSON.stringify({method:'unsubscribeTokenTrade',keys:removed}));
+        if(added.length)this.socket.send(JSON.stringify({method:'subscribeTokenTrade',keys:added}));
+      }
+    }
   }
   const api = {parseLaunch, Store, Connection};
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

@@ -162,7 +162,7 @@ class NetworkTests(unittest.TestCase):
                     policy=response.headers['Content-Security-Policy']
                     self.assertIn("script-src 'self'",policy)
                     self.assertIn('wss://pumpportal.fun',policy)
-                for script in ('/launch_feed.js','/dashboard.js'):
+                for script in ('/launch_feed.js','/dashboard.js','/market_extras.js'):
                     with opener.open(base+script) as response:
                         self.assertEqual(response.headers['Content-Type'],'text/javascript; charset=utf-8')
                         self.assertGreater(len(response.read()),100)

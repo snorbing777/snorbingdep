@@ -28,7 +28,7 @@ class Handler(BaseHTTPRequestHandler):
         if route == "/":
             body = Path(__file__).with_name("dashboard.html").read_bytes()
             content_type = "text/html; charset=utf-8"
-        elif route in ("/launch_feed.js", "/dashboard.js"):
+        elif route in ("/launch_feed.js", "/dashboard.js", "/market_extras.js"):
             body = Path(__file__).with_name(route[1:]).read_bytes()
             content_type = "text/javascript; charset=utf-8"
         elif route == "/api/status":
@@ -46,7 +46,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self' wss://pumpportal.fun; frame-ancestors 'none'; base-uri 'none'")
+        self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self' https:; connect-src 'self' wss://pumpportal.fun https://ipfs.io https://gateway.pinata.cloud https://pump.mypinata.cloud https://arweave.net https://*.ipfs.dweb.link; frame-ancestors 'none'; base-uri 'none'")
         self.end_headers()
         self.wfile.write(body)
 

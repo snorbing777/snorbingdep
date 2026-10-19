@@ -86,3 +86,12 @@ Up to 200 recent received launches remain in the tab; no historical backfill.
 Interruptions can miss coins. Feed status is separate from trading bot status.
 To update: Control-C in the dashboard terminal, git pull --ff-only, then
 bash "Open Live Dashboard.command". Keep that Terminal process running.
+
+TOKEN PICTURES AND SOUNDS
+After updating and restarting the dashboard, cards load token artwork when
+available. Initials remain if metadata/image loading fails.
+Click Enable sounds in the Sound & large buys panel, and adjust the volume.
+Check Monitor large buys to watch the 25 most recent received launches; default
+minimum is 10 SOL. These are reported large trades, not verified whale identities.
+Launch and large-buy tones differ; rapid alerts are grouped. Keep the page open.
+No wallet connection or funding is required for these read-only alerts.

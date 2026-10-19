@@ -30,7 +30,7 @@ test('filters names and addresses, age and cap without inventing quotes',()=>{
 
 function fixture(){
   const sockets=[],statuses=[],tokens=[],timers=[];
-  class Socket { constructor(url){this.url=url;this.sent=[];sockets.push(this);}send(x){this.sent.push(x);}close(){this.closed=true;this.onclose?.();} }
+  class Socket { constructor(url){this.url=url;this.sent=[];this.readyState=0;sockets.push(this);}send(x){this.sent.push(x);}close(){this.readyState=3;this.closed=true;this.onclose?.();} }
   const connection=new Connection({onToken:x=>tokens.push(x),onStatus:x=>statuses.push(x),WebSocketImpl:Socket,
     setTimer:(fn,delay)=>{timers.push({fn,delay});return timers.length;},clearTimer:()=>{}});
   return {connection,sockets,statuses,tokens,timers};
@@ -53,4 +53,15 @@ test('provider rejection stops the stream without exposing raw provider content'
   f.sockets[0].onmessage({data:'{"error":"untrusted provider message"}'});
   assert.equal(f.statuses.at(-1).state,'provider_error');assert.equal(f.connection.stopped,true);
   assert.equal(f.tokens.length,0);assert.equal(f.timers.length,0);
+});
+test('trade subscriptions stay bounded, unsubscribe evicted tokens and restore after reconnect',()=>{
+  const f=fixture();f.connection.start();f.sockets[0].readyState=1;f.sockets[0].onopen();
+  f.connection.setTradeTokens([mint]);
+  assert.deepEqual(JSON.parse(f.sockets[0].sent.at(-1)),{method:'subscribeTokenTrade',keys:[mint]});
+  const second='11111111111111111111111111111111';f.connection.setTradeTokens([second]);
+  assert.deepEqual(JSON.parse(f.sockets[0].sent.at(-2)),{method:'unsubscribeTokenTrade',keys:[mint]});
+  f.sockets[0].close();f.timers[0].fn();f.sockets[1].onopen();
+  assert.deepEqual(JSON.parse(f.sockets[1].sent.at(-1)),{method:'subscribeTokenTrade',keys:[second]});
+  f.connection.setTradeTokens(Array.from({length:40},(_,i)=>'2'.repeat(31)+String.fromCharCode(65+i%20)));
+  assert.ok(f.connection.tradeTokens.length<=25);
 });

@@ -7,6 +7,18 @@ function age(time) { const seconds=Math.max(0,Math.floor((Date.now()-time)/1000)
 let notificationsEnabled=false, initialized=false, previousTime=0, seen=new Set(), renderTimer=null, pageSize=60;
 const store = new PumpLaunchFeed.Store();
 let streamState='connecting', lastEvent=0;
+const artwork=new MarketExtras.Artwork({onChange:()=>scheduleRender()});
+const sounds=new MarketExtras.Sounds(), whales=new MarketExtras.WhaleTracker();
+let whaleEvents=[], lastWhalePopup=0;
+function syncWhales(){feed.setTradeTokens($('whale-enabled').checked?store.items.slice(0,25).map(t=>t.mint):[]);$('whale-scope').textContent=$('whale-enabled').checked?`Monitoring ${feed.tradeTokens.length} recent launches · threshold is trade size, not wallet identity.`:'Large-buy monitoring off. Enable to watch the 25 most recent received launches.';}
+$('sound-toggle').onclick=async()=>{
+  if(sounds.enabled){sounds.mute();$('sound-toggle').textContent='Enable sounds';$('sound-state').textContent='Muted';return;}
+  try{await sounds.enable();sounds.volume=Number($('sound-volume').value)/100;sounds.play('launch',true);$('sound-toggle').textContent='Mute sounds';$('sound-state').textContent='Sound on · rapid events grouped';}
+  catch(_){$('sound-state').textContent='Audio unavailable. Check browser permissions and try again.';}
+};
+$('sound-volume').oninput=()=>{sounds.volume=Number($('sound-volume').value)/100;};
+$('whale-enabled').onchange=()=>{syncWhales();if(streamState==='provider_error')feed.reconnect();};
+$('whale-threshold').onchange=()=>{const n=Number($('whale-threshold').value);if(!Number.isFinite(n)||n<=0){$('whale-threshold').value='10';}$('whale-threshold').value=String(Math.min(1000000,Math.max(.1,Number($('whale-threshold').value))));};
 
 function alertNode(a) {
   const n=node('article','',`mini-alert ${a.kind}`);
@@ -39,6 +51,8 @@ function tokenCard(t) {
   const top=node('div','','token-top'), avatar=node('div',t.symbol.slice(0,2).toUpperCase(),'avatar');
   let hue=0;for(const c of t.mint)hue=(hue*31+c.charCodeAt(0))%360;
   avatar.style.background=`hsl(${hue} 25% 25%)`;avatar.style.color=`hsl(${hue} 80% 84%)`;
+  const image=artwork.get(t);
+  if(image){const img=document.createElement('img');img.alt=t.name+' token artwork';img.loading='lazy';img.decoding='async';img.referrerPolicy='no-referrer';img.src=image;img.onerror=()=>{artwork.reject(t.mint);img.remove();};avatar.append(img);}
   const name=node('div','','token-name');name.append(node('strong',t.name),node('div','$'+t.symbol,'symbol'));
   const timestamp=node('span',age(t.receivedAt),'token-age');timestamp.dataset.time=String(t.receivedAt);
   top.append(avatar,name,timestamp);
@@ -76,7 +90,18 @@ function scheduleRender(){if(renderTimer===null)renderTimer=setTimeout(renderLau
 for(const id of ['search','age','sort'])$(id).addEventListener(id==='search'?'input':'change',()=>{pageSize=60;renderLaunches();});
 
 const feed=new PumpLaunchFeed.Connection({
-  onToken(message){const token=store.add(message);if(token){lastEvent=Date.now();scheduleRender();}},
+  onToken(message){
+    const token=store.add(message);
+    if(token){lastEvent=Date.now();scheduleRender();syncWhales();if($('launch-sounds').checked)sounds.play('launch');return;}
+    const trade=whales.accept(message,feed.tradeTokens,Number($('whale-threshold').value));
+    if(trade){
+      const token=store.items.find(t=>t.mint===trade.mint),symbol=token?.symbol||trade.mint.slice(0,6);
+      const alert={id:trade.signature+':'+trade.mint,time:trade.time,kind:'whale',title:`LARGE BUY · ${symbol}`,detail:`${trade.sol.toFixed(2)} SOL reported buy · ${trade.mint}. Trade-size alert, not a verified whale identity.`};
+      whaleEvents.unshift(alert);whaleEvents=whaleEvents.slice(0,12);renderWhales();
+      sounds.play('whale');
+      if(Date.now()-lastWhalePopup>=6000){lastWhalePopup=Date.now();popup(alert);} // Muting audio does not disable visual alerts.
+    }
+  },
   onStatus(status){
     streamState=status.state;
     const labels={connecting:'Connecting to launch stream',connected:'Launch stream connected',reconnecting:'Disconnected · retrying',paused:'Launch stream paused',provider_error:'Provider rejected subscription'};
@@ -85,11 +110,17 @@ const feed=new PumpLaunchFeed.Connection({
     $('pause-feed').textContent=feed.stopped?'Resume feed':'Pause feed';
     $('coverage').textContent=status.gap?'Coverage gap: launches during downtime or pauses may be missing. No backfill. Showing received events only.':'Source: PumpPortal new-token stream. No historical backfill. Events may be missed during interruptions.';
     $('coverage').classList.toggle('warning',status.gap);scheduleRender();
+    $('whale-connection').textContent=status.state==='connected'?'Trade stream uses this connection; provider coverage applies.':'Trade monitoring interrupted with launch feed.';
   }
 });
 $('pause-feed').onclick=()=>{if(feed.stopped)feed.start();else feed.stop();};
 $('reconnect').onclick=()=>feed.reconnect();
 feed.start();renderLaunches();
+function renderWhales(){
+  $('whale-timeline').replaceChildren(...whaleEvents.map(alertNode));
+  if(!whaleEvents.length)$('whale-timeline').append(node('p','No qualifying buys received for monitored tokens.','side-note'));
+}
+renderWhales();
 window.addEventListener('beforeunload',()=>feed.stop(false));
 setInterval(()=>{
   document.querySelectorAll('.token-age').forEach(el=>el.textContent=age(Number(el.dataset.time)));
