@@ -389,8 +389,11 @@ small test via Check Funding.command. Stop trading before external funding
 changes. For a withdrawal, stop the bot and manage/close positions first:
 
 ```sh
-# Replace destination and amount. This previews only; it does not broadcast.
-.venv/bin/python wallet_manage.py withdraw --to YOUR_PHANTOM_PUBLIC_ADDRESS --sol 0.01
+# Paste only your public Solana receiving address from Phantom when prompted.
+# This previews a 0.01 SOL withdrawal; it does not broadcast.
+printf 'Paste your Phantom SOL receiving address: ' && \
+read -r phantom_address && \
+.venv/bin/python wallet_manage.py withdraw --to "$phantom_address" --sol 0.01
 ```
 
 Review the full destination and quoted network fee. To submit, repeat the
@@ -402,6 +405,11 @@ debits. It blocks active bot locks, pending signatures and open ledger positions
 Token balances are not liquidated automatically. An ambiguous withdrawal leaves
 `.local/withdraw-pending.json`; do not delete it blindly or resubmit. No funded
 withdrawal has been verified here. A terminal preview/test is not execution proof.
+Failures identify the check that stopped the command, including invalid addresses,
+insufficient SOL (with the quoted fee), RPC/TLS errors and ledger blocks. Share
+only this diagnostic message for help, never a wallet file or credential-bearing
+RPC URL. If a broadcast was attempted, the diagnostic reports an uncertain
+transfer status and public signature instead of claiming nothing was submitted.
 
 After a deposit while a ledger already exists, preview:
 
