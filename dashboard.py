@@ -12,10 +12,12 @@ from urllib.parse import urlsplit, parse_qs, quote
 import artwork
 import manual_trading
 import research
+import public_access
 
 from callouts import public_snapshot
 
 MANUAL_SLOT = threading.BoundedSemaphore(1)
+VERSION = 3
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -26,11 +28,28 @@ class Handler(BaseHTTPRequestHandler):
 
     def allowed(self, write=False):
         hosts = {f"localhost:{self.server.server_port}", f"127.0.0.1:{self.server.server_port}"}
+        public = getattr(self.server, "public_origin", None)
+        if public:
+            hosts.add(urlsplit(public).netloc)
         if self.headers.get("Host") not in hosts:
             return False
         origin = self.headers.get("Origin")
-        expected = "http://"+self.headers.get("Host", "")
-        return (origin == expected if write else not origin or origin == expected)
+        expected = public if public and self.headers.get("Host") == urlsplit(public).netloc else "http://"+self.headers.get("Host", "")
+        origins = {expected}
+        if public:
+            origins.add(public)  # Quick Tunnel may rewrite Host to the loopback origin.
+        return (origin in origins if write else not origin or origin in origins)
+
+    def authenticated(self):
+        password = getattr(self.server, "password", None)
+        if not password or password.check(self.headers.get("Authorization")):
+            return True
+        self.send_response(401)
+        self.send_header("WWW-Authenticate", 'Basic realm="Signal Desk", charset="UTF-8"')
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+        return False
 
     def json_response(self, data, status=200):
         body = json.dumps(data).encode()
@@ -45,6 +64,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self.allowed(write=True) or self.headers.get("Content-Type") != "application/json":
             self.send_error(403)
+            return
+        if not self.authenticated():
             return
         if self.path != "/api/manual/prepare":
             self.send_error(404)
@@ -88,10 +109,12 @@ class Handler(BaseHTTPRequestHandler):
         if not self.allowed():
             self.send_error(403)
             return
+        if not self.authenticated():
+            return
         route = urlsplit(self.path).path
         query = parse_qs(urlsplit(self.path).query)
         if route == "/api/health":
-            self.json_response({"app": "signal-desk", "version": 2})
+            self.json_response({"app": "signal-desk", "version": VERSION})
             return
         elif route == "/api/analysis":
             if not research.SLOTS.acquire(blocking=False):
@@ -117,16 +140,18 @@ class Handler(BaseHTTPRequestHandler):
             body = Path(__file__).with_name("shark.svg").read_bytes()
             content_type = "image/svg+xml"
         elif route in ("/api/artwork", "/api/token-image"):
-            if not artwork.SLOTS.acquire(blocking=False):
+            slots = artwork.SLOTS if route == "/api/artwork" else artwork.IMAGE_SLOTS
+            if not slots.acquire(blocking=False):
                 self.send_error(503, "Artwork busy; retry shortly")
                 return
             try:
                 if route == "/api/artwork":
-                    data = artwork.resolve(query.get("mint", [""])[0], query.get("uri", [""])[0])
+                    data = artwork.resolve(query.get("mint", [""])[0], query.get("uri", [""])[0], force=query.get("refresh") == ["1"])
                     if data.get("image"):
                         try:
                             artwork.safe_url(data["image"])
                             data = data | {"proxy": "/api/token-image?url="+quote(data["image"], safe="")}
+                            data["proxy_failure"] = artwork.IMAGE_ERRORS.get(artwork.safe_url(data["image"]))
                         except ValueError:
                             pass
                     body, content_type = json.dumps(data).encode(), "application/json"
@@ -136,7 +161,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_error(404, "Artwork unavailable")
                 return
             finally:
-                artwork.SLOTS.release()
+                slots.release()
         elif route == "/api/wallet":
             try:
                 from wallet_setup import load_wallet, DEFAULT_WALLET
@@ -159,7 +184,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_error(404)
                 return
             content_type = "image/png" if body.startswith(b"\x89PNG") else "image/jpeg"
-        elif route in ("/launch_feed.js", "/dashboard.js", "/market_extras.js", "/research_ui.js", "/manual_wallet.js"):
+        elif route in ("/launch_feed.js", "/dashboard.js", "/market_extras.js", "/research_ui.js", "/manual_wallet.js", "/notification_center.js"):
             body = Path(__file__).with_name(route[1:]).read_bytes()
             content_type = "text/javascript; charset=utf-8"
         elif route == "/api/status":
@@ -183,14 +208,25 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", "private, max-age=300" if route == "/api/token-image" else "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self' https:; connect-src 'self' wss://pumpportal.fun https://ipfs.io https://gateway.pinata.cloud https://pump.mypinata.cloud https://arweave.net https://*.ipfs.dweb.link; frame-ancestors 'none'; base-uri 'none'")
         self.end_headers()
         self.wfile.write(body)
 
     def log_message(self, *args):
         pass
+
+
+def make_server(port, snapshot, paper_snapshot=None, public_origin=None, password=None):
+    if public_origin and password is None:
+        raise ValueError("Public origin requires password protection")
+    public_origin = public_access.origin(public_origin) if public_origin else None
+    server = ThreadingHTTPServer(("127.0.0.1", port), partial(Handler, snapshot=snapshot, paper_snapshot=paper_snapshot))
+    server.public_origin = public_origin
+    server.password = password
+    return server
 
 
 def main():
@@ -201,7 +237,7 @@ def main():
     parser.add_argument("--paper-snapshot", type=Path, default=Path(".local/state.dashboard.json"))
     args = parser.parse_args()
     try:
-        server = ThreadingHTTPServer(("127.0.0.1", args.port), partial(Handler, snapshot=args.snapshot, paper_snapshot=args.paper_snapshot))
+        server = make_server(args.port, args.snapshot, args.paper_snapshot)
     except OSError:
         raise SystemExit(f"Cannot start the dashboard on local port {args.port}. An existing dashboard may already be running. Use Signal Desk.app or stop the old dashboard before starting another.") from None
     print(f"Dashboard listening on local port {server.server_port}; keep this terminal running. Discovery requires no trading wallet.", flush=True)

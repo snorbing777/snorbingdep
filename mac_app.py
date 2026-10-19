@@ -29,7 +29,7 @@ def health():
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         with opener.open("http://127.0.0.1:8765/api/health", timeout=2) as response:
             data = json.load(response)
-        return data.get("app") == "signal-desk" and data.get("version") == 2
+        return data.get("app") == "signal-desk" and data.get("version") == 3
     except (OSError, ValueError):
         return False
 
@@ -69,7 +69,7 @@ def main(argv=None):
         executable.write_text("#!/bin/bash\nexec "+shlex.quote(sys.executable)+" "+shlex.quote(str(ROOT/"mac_app.py"))+" open\n")
         executable.chmod(0o755)
         (app/"Contents/Info.plist").write_bytes(plistlib.dumps(dict(CFBundleIdentifier=LABEL, CFBundleName="Signal Desk",
-            CFBundleExecutable="SignalDesk", CFBundlePackageType="APPL", CFBundleVersion="2", LSUIElement=True)))
+            CFBundleExecutable="SignalDesk", CFBundlePackageType="APPL", CFBundleVersion="3", LSUIElement=True)))
         if loaded:
             subprocess.run(["launchctl", "bootout", domain+"/"+LABEL], check=True, capture_output=True)
         agent.write_bytes(plistlib.dumps(agent_config(ROOT, sys.executable)))
@@ -87,7 +87,8 @@ def main(argv=None):
             raise SystemExit("Could not start the background service. Check macOS Login Items and folder access.")
     for _ in range(20):
         if health():
-            webbrowser.open("http://127.0.0.1:8765")
+            from public_share import current_url
+            webbrowser.open(current_url() or "http://127.0.0.1:8765")
             print("Signal Desk is running in the background. You can close Terminal. Open ~/Applications/Signal Desk.app next time.")
             print("Keep this project folder in place. Only the dashboard is supervised; live trading is not started.")
             return

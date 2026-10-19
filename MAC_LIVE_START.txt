@@ -136,3 +136,32 @@ trade; Approve in Phantom requests a real wallet approval and broadcast. Manual
 orders are outside automated risk limits. Pending/uncertain submissions block
 another order until their outcome is checked. Never share seeds or wallet files.
 No funded Phantom manual trade or production artwork delivery is verified here.
+
+
+EVERY-ANALYSIS ALERTS / MINT ARTWORK / FREE PUBLIC LINK
+After git pull, restart the dashboard server (web server v3). New frontend files
+alone cannot enable new backend routes; a notice flags an old running server.
+The Analysis & trade pop-ups panel has separate analysis / runner / trade toggles.
+Rejected coin analyses pop up too. Paper fills, confirmed live fills and confirmed
+Phantom manual trades are labelled separately. A potential-runner alert needs
+all market AND fresh narrative checks; it is not a 100x forecast or buy instruction.
+Enable notifications on the current browser origin for desktop delivery. Pop-ups
+require the dashboard tab open; permission and macOS Focus control OS delivery.
+
+Coin artwork is looked up by exact mint if the stream has no image/URI. Click
+its artwork-status text to view and copy diagnostics; retry can refresh lookup.
+No real provider artwork delivery was verified here (cloud proxy 403).
+
+To get a free public HTTPS hostname without buying a domain:
+  bash "Share Dashboard.command"
+Choose a NEW dashboard password (16+ characters); browser username: signaldesk.
+The helper installs only an official SHA-256-verified cloudflared release if
+needed, registers a background sharing agent and opens the new trycloudflare.com
+address. The password is not printed/stored in plaintext. Keep the Mac awake and
+online. The free hostname can change after sharing restarts. Terminal may close
+after readiness passes. A new hostname requires browser notification permission.
+This is not permanent cloud hosting and starts no trading process.
+Stop sharing and disable its login startup:
+  bash "Stop Public Sharing.command"
+The local dashboard remains available. Do not publish wallet files, API keys or
+the dashboard password. Actual macOS and public-tunnel startup need local testing.

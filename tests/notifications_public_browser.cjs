@@ -1,0 +1,47 @@
+const assert=require('node:assert/strict');const {chromium}=require('playwright');const {spawn}=require('node:child_process');
+const path=require('node:path');
+(async()=>{
+ const root=path.join(__dirname,'..'),base='http://127.0.0.1:8767';
+ const python=`import base64,signal\nfrom pathlib import Path\nimport artwork,dashboard,public_access,wallet_setup\nartwork.resolve=lambda mint,uri,force=False: {'image':'https://images.pump.fun/fixture.png','status':'pump_metadata','attempts':[{'stage':'Pump.fun coin metadata','status':'image_found'}]}\nartwork.image_bytes=lambda url: (base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jv1kAAAAASUVORK5CYII='),'image/png')\ndef missing(*args): raise ValueError('fixture has no wallet')\nwallet_setup.load_wallet=missing\nserver=dashboard.make_server(8767,Path('/tmp/no-fixture-state.json'),public_origin='https://fixture.example',password=public_access.Password(public_access.password_config('fixture-password-never-live')))\nprint('READY',flush=True)\nserver.serve_forever()\n`;
+ const service=spawn(path.join(root,'.venv/bin/python'),['-u','-c',python],{cwd:root,stdio:['ignore','pipe','pipe']});
+ let browser;
+ try{
+   await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('fixture readiness timeout')),10000);service.stdout.once('data',()=>{clearTimeout(timer);resolve();});service.once('exit',code=>reject(Error('fixture exited '+code)));});
+   const unauthorized=await fetch(base+'/api/wallet');assert.equal(unauthorized.status,401);
+   browser=await chromium.launch({headless:true,...(process.env.BROWSER_PATH?{executablePath:process.env.BROWSER_PATH}:{})});
+   const context=await browser.newContext({httpCredentials:{username:'signaldesk',password:'fixture-password-never-live'},viewport:{width:1400,height:1000}});
+   const page=await context.newPage(),errors=[],sockets=[];page.on('pageerror',error=>errors.push(error.message));
+   await page.addInitScript(()=>{window.desktopEvents=[];window.Notification=class{static permission='granted';static async requestPermission(){return 'granted';}constructor(title,options){desktopEvents.push({title,...options});}};});
+   await page.routeWebSocket('wss://pumpportal.fun/api/data',ws=>{sockets.push(ws);ws.onMessage(()=>{});});
+   const mint='So11111111111111111111111111111111111111112',now=Date.now()/1000;let observed=now;
+   let research={observed_at:observed,status:'screen_blocked',eligible:false,score:55,metrics:{liquidity_usd:90000},checks:{liquidity:true,narrative_evidence:false},narrative:{reason:'No narrative measurements'},thresholds:{},sources:[],unknowns:[]};
+   let paper={time:0,mode:'waiting',candidates:[],alerts:[],positions:[]},live={...paper};
+   await page.route('**/api/analysis?*',route=>route.fulfill({json:{mint,...research}}));
+   await page.route('**/api/status',route=>route.fulfill({json:live}));
+   await page.route('**/api/status?mode=paper',route=>route.fulfill({json:paper}));
+   await page.route('**/api/status?mode=live',route=>route.fulfill({json:live}));
+   await page.goto(base);await page.getByText('Launch stream connected',{exact:true}).waitFor();
+   sockets[0].send(JSON.stringify({txType:'create',mint,name:'Authenticated image fixture',symbol:'FIX'}));
+   await page.waitForFunction(()=>document.querySelector('.token img')?.naturalWidth>0);
+   assert.match(await page.locator('.token img').getAttribute('src'),/^\/api\/token-image/);
+   await page.waitForFunction(()=>desktopEvents.some(e=>e.title==='ANALYSIS COMPLETE · FIX'));
+   assert.equal(await page.evaluate(()=>desktopEvents.filter(e=>e.title.startsWith('POTENTIAL RUNNER')).length),0);
+   await page.getByRole('button',{name:'Analyze runner potential'}).click();
+   research={...research,observed_at:++observed,eligible:true,status:'screen_passed',checks:Object.fromEntries(['chain_enabled','pump_filter','price','age','liquidity','volume','buys','buy_pressure','momentum','narrative_evidence'].map(key=>[key,true])),narrative:{passed:true,reason:'Fresh complete sample passes'}};
+   await page.locator('#refresh-research').click();
+   await page.waitForFunction(()=>desktopEvents.filter(e=>e.title==='POTENTIAL RUNNER · FIX').length===1);
+   await page.locator('#refresh-research').click();await page.waitForTimeout(150);
+   assert.equal(await page.evaluate(()=>desktopEvents.filter(e=>e.title==='POTENTIAL RUNNER · FIX').length),1);
+   await page.locator('#close-research').click();
+   paper={time:now,mode:'paper',equity:100,positions:[],candidates:[{address:mint,token_address:mint,symbol:'FIX',eligible:false,checks:{narrative_evidence:false},narrative_reason:'No narrative measurements'}],alerts:[{id:'paper-fill',time:now,title:'PAPER ENTRY · FIX',detail:'Fixture virtual fill',kind:'entry',mint}]};
+   await page.evaluate(()=>refreshSections());await page.waitForFunction(()=>desktopEvents.some(e=>e.title==='PAPER ENTRY · FIX'));
+   const count=await page.evaluate(()=>desktopEvents.length);await page.evaluate(()=>refreshSections());assert.equal(await page.evaluate(()=>desktopEvents.length),count);
+   live={...paper,mode:'live-pump',alerts:[{id:'live-fill',time:now,title:'LIVE SELL CONFIRMED · FIX',detail:'Fixture confirmed exit',kind:'exit',mint}]};
+   await page.evaluate(()=>refreshSections());await page.waitForFunction(()=>desktopEvents.some(e=>e.title==='LIVE SELL CONFIRMED · FIX'));
+   assert.ok(await page.locator('#event-history .mini-alert').count()>=5);
+   await page.locator('.art-status').click();assert.match(await page.locator('#art-details').textContent(),/image_found/);assert.match(await page.locator('#art-details').textContent(),/Metadata URI in launch event: no/);await page.locator('#close-image').click();
+   await page.reload();await page.waitForFunction(()=>document.querySelector('#paper-equity').textContent==='$100.00');assert.equal(await page.evaluate(()=>desktopEvents.length),0);
+   await page.setViewportSize({width:390,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+   assert.deepEqual(errors,[]);console.log('PASS: password-gated server, authenticated image metadata/proxy without a stream URI, analysis and qualified-runner pop-ups, paper fills, poll/reload dedup, image diagnostics, event history and mobile layout. Fixture metadata/desktop notification API only.');
+ }finally{await browser?.close();service.kill('SIGTERM');}
+})().catch(error=>{console.error(error);process.exit(1)});

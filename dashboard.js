@@ -4,15 +4,26 @@ const money = n => typeof n === 'number' && Number.isFinite(n) ? n.toLocaleStrin
 const compact = n => n === null ? '—' : n.toLocaleString(undefined, {maximumFractionDigits:2,notation:n>=10000?'compact':'standard'});
 function node(tag, text, cls) { const n=document.createElement(tag); n.textContent=text; if(cls)n.className=cls; return n; }
 function age(time) { const seconds=Math.max(0,Math.floor((Date.now()-time)/1000));return seconds<60?`${seconds}s ago`:seconds<3600?`${Math.floor(seconds/60)}m ago`:`${Math.floor(seconds/3600)}h ago`; }
-let notificationsEnabled=false, initialized=false, previousTime=0, seen=new Set(), renderTimer=null, pageSize=60;
+let notificationsEnabled=false, renderTimer=null, pageSize=60;
 const store = new PumpLaunchFeed.Store();
 let streamState='connecting', lastEvent=0;
 const cards=new Map();
 const artwork=new MarketExtras.Artwork({onChange:mint=>{
   if(mint&&cards.has(mint))renderArtwork(cards.get(mint),store.items.find(t=>t.mint===mint));
   else for(const token of store.items)if(cards.has(token.mint))renderArtwork(cards.get(token.mint),token);
+  if(mint)window.DeskAlerts?.refreshArtwork(mint);
 }});
+window.DeskAlerts?.setArtwork(mint=>artwork.get(store.items.find(t=>t.mint===mint)||{mint}));
 const sounds=new MarketExtras.Sounds(), whales=new MarketExtras.WhaleTracker();
+let imageMint=null;
+$('close-image').onclick=()=>$('image-dialog').close();
+$('copy-image-details').onclick=async()=>{try{await navigator.clipboard.writeText($('art-mint').textContent+'\n'+$('art-details').textContent);$('copy-image-details').textContent='Diagnostics copied';}catch(_){$('copy-image-details').textContent='Select the diagnostic text and copy it';}};
+$('retry-one-image').onclick=()=>{if(imageMint){artwork.retry(imageMint);showImageDetails(imageMint);}};
+function showImageDetails(mint,inspect=false){imageMint=mint;$('art-mint').textContent=mint;const d=artwork.diagnostics(mint);
+  $('art-details').textContent=`${d.status}\nImage URL in launch event: ${d.stream_image_present?'yes':'no'}\nMetadata URI in launch event: ${d.stream_uri_present?'yes':'no'}\n`+(d.attempts||[]).map(a=>a.stage+': '+a.status).join('\n')+(d.proxy_failure?'\nImage proxy: '+d.proxy_failure:'')+'\n\nTLS error: run the matching Python Install Certificates.command on macOS. HTTP 429: provider rate limit. Missing metadata: the creator may not have published accessible artwork.';
+  if(!$('image-dialog').open)$('image-dialog').showModal();
+  if(inspect)artwork.inspect(mint).then(()=>{if(imageMint===mint&&$('image-dialog').open)showImageDetails(mint);});
+}
 let whaleEvents=[], lastWhalePopup=0;
 function syncWhales(){feed.setTradeTokens($('whale-enabled').checked?store.items.slice(0,25).map(t=>t.mint):[]);$('whale-scope').textContent=$('whale-enabled').checked?`Monitoring ${feed.tradeTokens.length} recent launches · threshold is trade size, not wallet identity.`:'Large-buy monitoring off. Enable to watch the 25 most recent received launches.';}
 $('sound-toggle').onclick=async()=>{
@@ -30,17 +41,13 @@ function alertNode(a) {
   return n;
 }
 function popup(a) {
-  const n=alertNode(a), close=node('button','×','close');close.setAttribute('aria-label','Dismiss notification');close.onclick=()=>n.remove();n.prepend(close);$('toasts').append(n);
-  while($('toasts').children.length>4)$('toasts').firstChild.remove();setTimeout(()=>n.remove(),20000);
-  if(notificationsEnabled && 'Notification' in window && Notification.permission==='granted') {
-    try { new Notification(a.title,{body:a.detail,tag:a.id}); }
-    catch(_) { $('permission').textContent='Desktop delivery unavailable. In-page callouts remain active.'; }
-  }
+  window.DeskAlerts?.publish(a);
 }
 $('test').onclick=()=>popup({id:'demo-'+Date.now(),time:Date.now()/1000,kind:'watch',title:'TEST CALLOUT',detail:'Demonstration only. No order was placed.'});
+if('Notification'in window&&Notification.permission==='granted')$('notify').textContent='Desktop notifications on';
 $('notify').onclick=async()=>{
   if(!('Notification' in window)){$('permission').textContent='Your browser supports in-page alerts only.';return;}
-  try{notificationsEnabled=await Notification.requestPermission()==='granted';$('permission').textContent=notificationsEnabled?'Desktop callouts enabled for this session.':'Permission not granted; in-page alerts remain active.';}
+  try{notificationsEnabled=await Notification.requestPermission()==='granted';$('notify').textContent=notificationsEnabled?'Desktop notifications on':'Enable notifications';$('permission').textContent=notificationsEnabled?'Desktop callouts enabled for this session.':'Permission not granted; in-page alerts remain active.';}
   catch(_){$('permission').textContent='Desktop notifications unavailable in this browser.';}
 };
 $('wallet-help').onclick=()=>$('wallet-dialog').showModal();
@@ -54,6 +61,8 @@ function renderArtwork(card,t){
   if(!t)return;
   const avatar=card.querySelector('.avatar'),status=card.querySelector('.art-status'),url=artwork.get(t),previous=avatar.querySelector('img');
   status.textContent=artwork.status(t.mint);
+  status.setAttribute('role','button');status.tabIndex=0;status.onclick=()=>showImageDetails(t.mint,true);status.onkeydown=event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();showImageDetails(t.mint,true);}};
+  if(imageMint===t.mint&&$('image-dialog').open)showImageDetails(t.mint);
   if(previous?.dataset.url===url)return;
   previous?.remove();
   if(url){const img=document.createElement('img');img.dataset.url=url;img.alt=t.name+' token artwork';img.loading='lazy';img.decoding='async';img.referrerPolicy='no-referrer';
@@ -182,8 +191,7 @@ async function refreshBot() {
     const holdings=(d.positions||[]).map(p=>node('div',`${p.symbol||p.address} · ${p.chain||'solana'} · entry cost ${money(p.spent)} · entry price ${Number(p.entry).toPrecision(5)}`,'position'));
     if(!holdings.length)holdings.push(node('div','No open positions reported. Browsing launches does not start trading.','side-body'));$('holdings').replaceChildren(...holdings);
     const alerts=d.alerts||[];$('timeline').replaceChildren(...alerts.slice(-12).reverse().map(alertNode));if(!alerts.length)$('timeline').append(node('p','No trade callouts yet. New launches appear in Discover; they are not buy signals.','side-note'));
-    for(const a of alerts){if(initialized&&!stale&&!seen.has(a.id)&&a.time>=previousTime&&Date.now()/1000-a.time<120)popup(a);seen.add(a.id);}
-    initialized=true;previousTime=d.time||previousTime;if(seen.size>500)seen=new Set(alerts.map(a=>a.id));
+    window.DeskAlerts?.report(d);
   } catch(_) {
     $('server-health').textContent='App server offline · reopen Signal Desk app';
     $('status').textContent='Dashboard connection lost. Trading reports may be stale.';$('mode').textContent='Disconnected';
@@ -227,6 +235,7 @@ async function refreshSections(){
   const results=await Promise.allSettled(['/api/status?mode=paper','/api/status?mode=live','/api/wallet','/api/community'].map(async url=>{const response=await fetch(url,{cache:'no-store'});if(!response.ok)throw Error('status');return response.json();}));
   if(results[0].status==='fulfilled')modeInto('paper',results[0].value);
   if(results[1].status==='fulfilled')modeInto('live',results[1].value);
+  for(const result of results.slice(0,2))if(result.status==='fulfilled')window.DeskAlerts?.report(result.value);
   if(results[2].status==='fulfilled'){depositAddress=results[2].value.address;$('deposit-address').textContent=depositAddress||results[2].value.status;$('copy-deposit').disabled=!depositAddress;}
   if(results[3].status==='fulfilled'){
     const data=results[3].value;$('community-status').textContent=data.status+(data.updated_at?' · last collector update '+new Date(data.updated_at*1000).toLocaleString():'');
@@ -234,4 +243,6 @@ async function refreshSections(){
     if(!rows.length)rows.push(node('div','No source posts fetched. Configure authorized X / Telegram access; posts and performance are not fabricated.','empty'));$('community-items').replaceChildren(...rows);
   }
 }
-refreshSections();setInterval(refreshSections,15000);
+refreshSections();setInterval(refreshSections,3000);
+async function checkVersion(){try{const response=await fetch('/api/health',{cache:'no-store'}),data=await response.json();$('update-warning').classList.toggle('hidden',data.version>=3);$('app-version').textContent='Server v'+(data.version||'unknown');}catch(_){$('app-version').textContent='Server unavailable';}}
+checkVersion();setInterval(checkVersion,30000);

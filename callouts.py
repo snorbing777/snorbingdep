@@ -14,12 +14,15 @@ def publish(path, report, state, config):
     cooldowns = previous.get("cooldowns", {})
     candidates = {x["address"]: x for x in report.get("candidates", [])}
 
-    def add(kind, title, detail, identity, cooldown=0):
+    def add(kind, title, detail, identity, cooldown=0, asset=None):
         key = hashlib.sha256(identity.encode()).hexdigest()[:24]
         if key in cooldowns and now - cooldowns[key] < cooldown:
             return
         cooldowns[key] = now
-        alerts.append(dict(id=f"{key}-{now}", time=now, kind=kind, title=title, detail=detail))
+        alert = dict(id=f"{key}-{now}", time=now, kind=kind, title=title, detail=detail)
+        if asset and asset.get("chain", "solana") == "solana":
+            alert.update(mint=asset.get("token_address", asset.get("address")), symbol=asset.get("symbol"))
+        alerts.append(alert)
 
     mode = report.get("mode", "paper")
     for event in report.get("events", []):
@@ -30,7 +33,7 @@ def publish(path, report, state, config):
         if event["event"] == "buy":
             amount = event.get("spent", 0) if mode == "paper" else -event.get("usd_delta", 0)
             add("entry", f"{'PAPER ENTRY' if mode == 'paper' else 'LIVE BUY CONFIRMED'} · {symbol}",
-                f"{chain} · ${amount:.2f} · {address}", f"buy:{address}:{event.get('signature', now)}")
+                f"{chain} · ${amount:.2f} · {address}", f"buy:{address}:{event.get('signature', now)}", asset=token | {"address": address})
         elif event["event"] == "sell":
             reason = event.get("reason", "exit").replace("_", " ")
             # Proposed paper P&L is never presented as a confirmed live fill.
@@ -42,7 +45,7 @@ def publish(path, report, state, config):
             else:
                 detail += f"received ${event.get('usd_delta', 0):.2f} USDC"
             add("exit", f"{'PAPER EXIT' if mode == 'paper' else 'LIVE SELL CONFIRMED'} · {symbol}", detail,
-                f"sell:{address}:{event.get('signature', now)}")
+                f"sell:{address}:{event.get('signature', now)}", asset=token | {"address": address})
         elif event["event"] == "stale_price":
             add("warning", f"PRICE UNAVAILABLE · {symbol}", "Position remains open. New entries are blocked.", f"stale:{address}", 600)
     if report.get("error"):

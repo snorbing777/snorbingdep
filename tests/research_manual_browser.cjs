@@ -51,6 +51,7 @@ const {chromium}=require('playwright');
  assert.match(await page.locator('#manual-review').textContent(),/outside the automated/);
  await page.locator('#manual-submit').click();
  await page.waitForFunction(()=>document.querySelector('#manual-status').textContent.includes('transaction confirmed'));
+ assert.match(await page.locator('#event-history').textContent(),/MANUAL TRADE CONFIRMED/);
  const submissions=await page.evaluate(()=>walletSubmissions);assert.equal(submissions.length,1);assert.deepEqual(submissions[0].bytes,[0,1,2]);assert.equal(submissions[0].options.skipPreflight,false);assert.equal(submissions[0].chain,'solana:mainnet');
  await page.evaluate(()=>window.rejectWallet=true);
  await page.locator('#manual-prepare').click();await page.waitForFunction(()=>!document.querySelector('#manual-submit').disabled);

@@ -8,13 +8,14 @@ test('images use public HTTPS URLs and metadata uses known gateways',()=>{
   assert.equal(metadataURL('https://untrusted.example/metadata.json'),null);
   assert.ok(metadataURL('https://ipfs.io/ipfs/QmExample'));
 });
-test('metadata loads once, uses no credentials and failed artwork has fallback',async()=>{
+test('metadata loads once, authenticates only local requests and failed artwork has fallback',async()=>{
   let fetches=0,changed;const complete=new Promise(resolve=>changed=resolve);
-  const artwork=new Artwork({fetchImpl:async(url,options)=>{fetches++;assert.equal(options.credentials,'omit');return new Response(JSON.stringify({image:'https://example.com/token.png'}));},onChange:changed});
+  const artwork=new Artwork({fetchImpl:async(url,options)=>{fetches++;assert.equal(options.credentials,url.startsWith('/')?'same-origin':'omit');return new Response(JSON.stringify({image:'https://example.com/token.png'}));},onChange:changed});
   const token={mint:'token',uri:'ipfs://QmExample'};
   assert.equal(artwork.get(token),null);assert.equal(artwork.get(token),null);
   await complete;assert.equal(artwork.get(token),'https://example.com/token.png');assert.equal(fetches,1);
   artwork.reject(token.mint);assert.equal(artwork.get(token),null);
+  assert.ok(artwork.diagnostics(token.mint).attempts.some(a=>a.status==='image_request_or_decode_failed'));
 });
 test('large buys require buy side, watched mint, threshold and unique signature',()=>{
   const tracker=new WhaleTracker();const event={txType:'buy',mint:'mint',signature:'signature',solAmount:12};

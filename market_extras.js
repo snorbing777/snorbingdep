@@ -31,24 +31,27 @@
     }
     status(mint){return this.cache.get(mint)?.status||'Loading artwork';}
     loaded(mint){const entry=this.cache.get(mint);if(entry)entry.status='Artwork loaded';}
+    diagnostics(mint){const entry=this.cache.get(mint);return entry?{mint,status:entry.status,stream_image_present:Boolean(entry.token?.image),stream_uri_present:Boolean(entry.token?.uri),attempts:entry.diagnostics?.attempts||[],proxy_failure:entry.diagnostics?.proxy_failure||null}:{};}
+    async inspect(mint){const entry=this.cache.get(mint);if(!entry)return;try{const data=await this.json('/api/artwork?mint='+encodeURIComponent(mint)+'&uri='+encodeURIComponent(entry.token?.uri||''),22000);entry.diagnostics={...data,attempts:[...(data.attempts||[]),...(entry.diagnostics?.attempts||[]).filter(a=>a.stage==='Browser image')]};}catch(_){} }
     enqueue(mint){const entry=this.cache.get(mint);if(!entry||entry.pending)return;entry.pending=true;entry.status='Loading metadata';this.queue.push(mint);
       this.queue.sort((a,b)=>(this.cache.get(b)?.token?.receivedAt||0)-(this.cache.get(a)?.token?.receivedAt||0));
       if(this.queue.length>1000){const dropped=this.cache.get(this.queue.pop());if(dropped){dropped.pending=false;dropped.retryAt=this.now()+30000;dropped.status='Artwork queued for later';}}
       this.pump();
     }
     reject(mint,failedURL){const old=this.cache.get(mint);if(!old||(failedURL&&old.url!==failedURL))return;
+      old.diagnostics??={attempts:[]};old.diagnostics.attempts??=[];if(!old.diagnostics.attempts.some(a=>a.stage==='Browser image'))old.diagnostics.attempts.push({stage:'Browser image',status:'image_request_or_decode_failed'});
       if(old.backup){old.url=old.backup;old.backup=null;old.status='Trying direct image';}
       else{old.url=null;old.status='Image unavailable · retrying';old.retryAt=this.now()+10000;if(!old.attempted)this.enqueue(mint);}
       this.onChange(mint);
     }
-    retry(){for(const [mint,value] of this.cache)if(!value.url&&!value.pending){value.attempts=0;this.enqueue(mint);}this.onChange();}
-    async json(url,timeout){const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),timeout);try{return await boundedJSON(await this.fetch(url,{signal:controller.signal,credentials:'omit',referrerPolicy:'no-referrer',redirect:'follow'}));}finally{clearTimeout(timer);}}
+    retry(onlyMint){for(const [mint,value] of this.cache)if((!onlyMint||mint===onlyMint)&&!value.pending){value.attempts=0;value.force=true;this.enqueue(mint);}this.onChange(onlyMint);}
+    async json(url,timeout){const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),timeout);try{return await boundedJSON(await this.fetch(url,{signal:controller.signal,credentials:url.startsWith('/')?'same-origin':'omit',referrerPolicy:'no-referrer',redirect:'follow'}));}finally{clearTimeout(timer);}}
     async pump(){
       if(this.active>=4||!this.queue.length)return;
       const mint=this.queue.shift(),entry=this.cache.get(mint);if(!entry){this.pump();return;}this.active++;entry.attempts++;
       try{
         let metadata;const uri=typeof entry.token?.uri==='string'?entry.token.uri.slice(0,2048):'';
-        try{metadata=await this.json('/api/artwork?mint='+encodeURIComponent(mint)+'&uri='+encodeURIComponent(uri),6000);}catch(_){}
+        try{metadata=await this.json('/api/artwork?mint='+encodeURIComponent(mint)+'&uri='+encodeURIComponent(uri)+(entry.force?'&refresh=1':''),22000);entry.diagnostics=metadata;}catch(_){entry.diagnostics={attempts:[{stage:'Local artwork resolver',status:'unreachable_or_timed_out'}]};}entry.force=false;
         let url=imageURL(metadata?.image),proxy=typeof metadata?.proxy==='string'&&metadata.proxy.startsWith('/api/token-image?url=')?metadata.proxy:null;
         // Browser trust and CORS differ from Python's. Try public metadata directly
         // when the local resolver fails (including macOS Python trust-store errors).
@@ -59,7 +62,9 @@
             try{const data=await this.json(source,5000),image=data.image||data.image_uri;url=imageURL(image?new URL(image,source).href:null);if(url)break;}catch(_){}
           }
         }
-        entry.url=proxy||url;entry.backup=proxy?url:null;entry.status=entry.url?'Loading image':'Metadata unavailable · retry later';
+        entry.url=proxy||url;entry.backup=proxy?url:null;
+        const causes=(entry.diagnostics?.attempts||[]).map(a=>a.status);
+        entry.status=entry.url?'Loading image':causes.includes('tls_certificate_failed')?'Python TLS certificate error · click for help':!uri?'Looking up artwork by mint · unavailable so far':'Metadata unavailable · click for details';
       }catch(_){entry.url=null;entry.status='Metadata unavailable · retry later';}
       finally{entry.pending=false;entry.attempted=true;entry.retryAt=this.now()+Math.min(90000,10000*3**(entry.attempts-1));this.active--;this.onChange(mint);this.pump();}
     }

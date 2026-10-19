@@ -171,7 +171,7 @@ class DashboardControlTests(unittest.TestCase):
 
     def test_health_and_launchagent_configuration_do_not_start_live_trading(self):
         with urllib.request.urlopen(self.base+"/api/health") as response:
-            self.assertEqual(json.load(response), {"app": "signal-desk", "version": 2})
+            self.assertEqual(json.load(response), {"app": "signal-desk", "version": 3})
         config = plistlib.loads(plistlib.dumps(mac_app.agent_config(Path("/project with spaces"), Path("/python"))))
         self.assertTrue(config["KeepAlive"])
         self.assertIn("/project with spaces/dashboard.py", config["ProgramArguments"])

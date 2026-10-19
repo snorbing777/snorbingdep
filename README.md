@@ -522,3 +522,105 @@ server on port 8766 and Playwright/Chromium installed exercises image recovery,
 stable image nodes, research evidence, Wallet Standard approval and pending
 submission persistence. Unit tests also check same-origin POST restrictions,
 ledger-wallet isolation, fee/debit guards and LaunchAgent configuration.
+
+
+## Every-analysis pop-ups and free public HTTPS sharing
+
+The **Analysis & trade pop-ups** panel now receives each newly completed browser
+research result and each coin in a fresh paper/live scan report. Blocked analyses
+also produce pop-ups explaining the failed checks. A **POTENTIAL RUNNER** alert
+requires every market check and the narrative gate to pass; it appears when a
+coin transitions into that state. Missing narrative measurements do not qualify.
+This label describes a heuristic screening match, never a forecast of 100x or a
+buy instruction. It does not submit an order.
+
+Paper fills, confirmed live fills and confirmed Phantom manual trades produce
+separate labelled trade pop-ups. A preview or uncertain submission cannot become
+a confirmed-trade alert. Events are deduplicated across polls and browser reloads.
+Up to 500 recent events are retained in this browser's local history (100 shown).
+In-page pop-ups are queued; trade/runner alerts take priority over analysis. On
+busy feeds they may be delayed; event timestamps stay visible and old runner
+matches are labelled historical. The pending popup queue is bounded to 1000.
+Use the three checkboxes to reduce noise. Desktop notifications require clicking
+**Enable notifications** and allowing this site in the browser/macOS. Each new
+sharing hostname has separate browser permissions. Keep one dashboard tab open.
+Actual operating-system delivery is subject to permissions and Focus settings;
+no notification was observed on a real Mac during cloud tests.
+
+Artwork no longer depends on an image or URI being present in the creation event.
+`artwork.py` tries exact-mint Pump.fun public coin metadata, Token-2022 mint
+metadata / the mint's Metaplex metadata account, and an indexed DexScreener
+fallback. Relative image fields, common aliases, IPFS gateway/subdomain URLs and
+AVIF raster images are supported. Metadata and image downloads use separate
+concurrency limits; validated image bytes are cached with a 64 MiB bound. Local
+metadata requests include same-origin browser credentials so password-protected
+sharing can load images. External metadata fetches omit credentials.
+
+Click the artwork status under any coin for **Coin picture diagnostics**, then
+**Copy image diagnostics** to share the mint and stage/status text. These contain
+no wallet key, access password or credential-bearing RPC URL. The diagnostic
+separates a missing URI, provider HTTP errors, Python TLS errors, unsupported
+metadata and an image-proxy failure. Retry this picture refreshes the lookup.
+A server-version notice tells you when code was updated without restarting the
+old dashboard process. Creator artwork can still be missing or inaccessible;
+source availability was not verified from this cloud (proxy 403).
+
+For a free internet address without owning a domain, update and restart the Mac
+app, then run:
+
+```sh
+bash "Share Dashboard.command"
+```
+
+Choose a NEW dashboard password of at least 16 characters. The browser username
+is **signaldesk**. This is a dashboard login, not a pump.fun login or wallet seed.
+If `cloudflared` is not already installed, the helper downloads the official
+Cloudflare macOS release from GitHub and verifies the archive against the
+release's SHA-256 digest **before** installing/executing it. A missing or wrong
+digest blocks installation; a supported alternative is `brew install cloudflared`.
+TLS verification stays enabled. Intel and Apple Silicon Macs are supported by
+the installer; actual macOS/tunnel startup remains unverified in the Linux cloud.
+
+The helper opens a password-protected `https://…trycloudflare.com` address. No
+IP address, port, purchased domain, router port-forward or Cloudflare account is
+needed. This is a **temporary free hostname**, not a permanent registered domain:
+it can change when the sharing process restarts. Keep your Mac awake/online.
+The server and tunnel run as a per-user LaunchAgent and can survive Terminal
+closing. The Mac app opens the current sharing address when one is active.
+A stable custom hostname or always-on hosting would need separate setup.
+
+Sharing uses a second loopback server on port 8787. Every route requires a
+password, and manual POSTs still require the exact configured origin (including
+when the tunnel rewrites Host to loopback). There is no route for exporting a
+wallet key or signing with the unattended bot wallet. Phantom signs manual
+orders in the visiting browser, after explicit user approval. Public access does
+not start the paper/live processes, provide narrative credentials, or bypass
+trading safeguards. Treat your dashboard password as private.
+
+Only a salted password hash is stored, at
+`~/.config/snorbingdep/dashboard-access.json`, with mode 0600. Optional tunnel
+binaries/manifests are under that config directory's `bin/`. Sharing startup is
+registered at `~/Library/LaunchAgents/com.snorbingdep.signaldesk.share.plist`.
+The current non-secret address is `.local/public-share.json`; logs are
+`.local/public-share.log` and `.local/public-share-error.log`. Quick Tunnels may
+not work with an existing default cloudflared config or networks blocking its
+outbound connection (HTTP/2 uses TCP 7844). The helper reports startup failure;
+it does not weaken verification or expose an anonymous dashboard as a fallback.
+
+To stop sharing and disable its login startup:
+
+```sh
+bash "Stop Public Sharing.command"
+```
+
+The local dashboard and trading processes are unaffected. Run Share Dashboard
+again to re-enable it; use the existing dashboard password when prompted. You
+cannot reset that password by replacing trading-wallet files.
+
+Additional tests: `node --test tests/test_alerts.cjs` covers analysis/fill
+classification, full runner gating, freshness and deduplication. With Chromium
+and Playwright available, `node tests/notifications_public_browser.cjs` runs its
+own authenticated fixture server on 8767 and exercises credentialed image
+loading without a stream URI, analysis/runner/paper/live alerts, history and
+reload deduplication. It uses fixture metadata and a mocked desktop notification
+API, not a real public tunnel or profitable trades.

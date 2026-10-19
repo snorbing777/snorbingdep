@@ -11,7 +11,7 @@
   async function load(token){
     const old=reports.get(token.mint);if(old&&Date.now()/1000-old.observed_at<30)return old;
     const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),25000);
-    try{const response=await fetch('/api/analysis?mint='+encodeURIComponent(token.mint),{cache:'no-store',signal:controller.signal});if(!response.ok)throw Error('provider');const data=await response.json();reports.set(token.mint,data);while(reports.size>1000)reports.delete(reports.keys().next().value);badge(token.mint,data);return data;}
+    try{const response=await fetch('/api/analysis?mint='+encodeURIComponent(token.mint),{cache:'no-store',signal:controller.signal});if(!response.ok)throw Error('provider');const data=await response.json();reports.set(token.mint,data);while(reports.size>1000)reports.delete(reports.keys().next().value);badge(token.mint,data);window.DeskAlerts?.analysis(token,data);return data;}
     finally{clearTimeout(timer);}
   }
   async function run(){
