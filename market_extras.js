@@ -1,6 +1,12 @@
 (function(root){
   'use strict';
   const META_HOSTS=new Set(['ipfs.io','gateway.pinata.cloud','pump.mypinata.cloud','arweave.net']);
+  function pumpImageURL(mint){
+    // The mint selects the creator's artwork on pump.fun's own image service.
+    // Do not request an on-error redirect, which could return a generic icon.
+    return typeof mint==='string'&&/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(mint)?
+      'https://images.pump.fun/coin-image/'+encodeURIComponent(mint)+'?img-width=128&img-dpr=2':null;
+  }
   function imageURL(value){
     if(typeof value!=='string'||value.length>2048)return null;
     if(value.startsWith('ipfs://'))value='https://ipfs.io/ipfs/'+value.slice(7).replace(/^ipfs\//,'');
@@ -24,27 +30,30 @@
     constructor({fetchImpl=root.fetch,onChange=()=>{},now=()=>Date.now()}={}){this.fetch=(...args)=>fetchImpl.call(root,...args);Object.assign(this,{onChange,now});this.cache=new Map();this.queue=[];this.active=0;}
     get(token){
       let value=this.cache.get(token.mint);
-      if(!value){const image=imageURL(token.image);value={url:image,token,pending:false,attempted:false,attempts:0,status:image?'Loading image':'Loading metadata'};this.cache.set(token.mint,value);if(!image)this.enqueue(token.mint);}
-      else if(!value.url&&!value.pending&&value.retryAt&&this.now()>=value.retryAt&&value.attempts<3)this.enqueue(token.mint);
+      if(!value){const image=imageURL(token.image),pump=pumpImageURL(token.mint);value={url:image||pump,backup:null,fallback:pump,failed:new Set(),token,pending:false,attempted:false,attempts:0,status:image?'Loading creator image':pump?'Loading pump.fun artwork':'Loading metadata'};this.cache.set(token.mint,value);if(!value.url)this.enqueue(token.mint);}
+      else if(!value.url&&!value.pending&&value.retryAt&&this.now()>=value.retryAt&&value.attempts<3){value.failed.clear();value.url=pumpImageURL(token.mint);if(value.url){value.attempted=false;value.status='Retrying pump.fun artwork';}else this.enqueue(token.mint);}
       while(this.cache.size>1200)this.cache.delete(this.cache.keys().next().value);
       return this.cache.get(token.mint)?.url||null;
     }
     status(mint){return this.cache.get(mint)?.status||'Loading artwork';}
-    loaded(mint){const entry=this.cache.get(mint);if(entry)entry.status='Artwork loaded';}
-    diagnostics(mint){const entry=this.cache.get(mint);return entry?{mint,status:entry.status,stream_image_present:Boolean(entry.token?.image),stream_uri_present:Boolean(entry.token?.uri),attempts:entry.diagnostics?.attempts||[],proxy_failure:entry.diagnostics?.proxy_failure||null}:{};}
-    async inspect(mint){const entry=this.cache.get(mint);if(!entry)return;try{const data=await this.json('/api/artwork?mint='+encodeURIComponent(mint)+'&uri='+encodeURIComponent(entry.token?.uri||''),22000);entry.diagnostics={...data,attempts:[...(data.attempts||[]),...(entry.diagnostics?.attempts||[]).filter(a=>a.stage==='Browser image')]};}catch(_){} }
+    loaded(mint,url){const entry=this.cache.get(mint);if(entry&&(!url||url===entry.url))entry.status='Artwork loaded';}
+    diagnostics(mint){const entry=this.cache.get(mint);return entry?{mint,status:entry.status,stream_image_present:Boolean(entry.token?.image),stream_uri_present:Boolean(entry.token?.uri),attempts:[...(entry.browserAttempts||[]),...(entry.diagnostics?.attempts||[])],proxy_failure:entry.diagnostics?.proxy_failure||null}:{};}
+    async inspect(mint){const entry=this.cache.get(mint);if(!entry)return;try{entry.diagnostics=await this.json('/api/artwork?mint='+encodeURIComponent(mint)+'&uri='+encodeURIComponent(entry.token?.uri||''),22000);}catch(_){} }
     enqueue(mint){const entry=this.cache.get(mint);if(!entry||entry.pending)return;entry.pending=true;entry.status='Loading metadata';this.queue.push(mint);
       this.queue.sort((a,b)=>(this.cache.get(b)?.token?.receivedAt||0)-(this.cache.get(a)?.token?.receivedAt||0));
       if(this.queue.length>1000){const dropped=this.cache.get(this.queue.pop());if(dropped){dropped.pending=false;dropped.retryAt=this.now()+30000;dropped.status='Artwork queued for later';}}
       this.pump();
     }
     reject(mint,failedURL){const old=this.cache.get(mint);if(!old||(failedURL&&old.url!==failedURL))return;
-      old.diagnostics??={attempts:[]};old.diagnostics.attempts??=[];if(!old.diagnostics.attempts.some(a=>a.stage==='Browser image'))old.diagnostics.attempts.push({stage:'Browser image',status:'image_request_or_decode_failed'});
-      if(old.backup){old.url=old.backup;old.backup=null;old.status='Trying direct image';}
+      if(old.url)old.failed.add(old.url);
+      const source=old.url===pumpImageURL(mint)?'Pump.fun image service':old.url?.startsWith('/api/token-image?')?'Local image proxy':old.url===imageURL(old.token?.image)?'Launch event image':'Creator metadata image';
+      old.browserAttempts??=[];if(!old.browserAttempts.some(a=>a.source===source))old.browserAttempts.push({stage:'Browser image',source,status:'image_request_or_decode_failed'});
+      if(old.backup&&!old.failed.has(old.backup)){old.url=old.backup;old.backup=null;old.status='Trying direct image';}
+      else if(old.fallback&&!old.failed.has(old.fallback)){old.url=old.fallback;old.status='Loading pump.fun artwork';}
       else{old.url=null;old.status='Image unavailable · retrying';old.retryAt=this.now()+10000;if(!old.attempted)this.enqueue(mint);}
       this.onChange(mint);
     }
-    retry(onlyMint){for(const [mint,value] of this.cache)if((!onlyMint||mint===onlyMint)&&!value.pending){value.attempts=0;value.force=true;this.enqueue(mint);}this.onChange(onlyMint);}
+    retry(onlyMint){for(const [mint,value] of this.cache)if((!onlyMint||mint===onlyMint)&&!value.pending){value.attempts=0;value.attempted=false;value.force=true;value.failed.clear();value.backup=null;value.url=pumpImageURL(mint)||imageURL(value.token?.image);value.status=value.url?'Retrying pump.fun artwork':'Loading metadata';if(!value.url)this.enqueue(mint);}this.onChange(onlyMint);}
     async json(url,timeout){const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),timeout);try{return await boundedJSON(await this.fetch(url,{signal:controller.signal,credentials:url.startsWith('/')?'same-origin':'omit',referrerPolicy:'no-referrer',redirect:'follow'}));}finally{clearTimeout(timer);}}
     async pump(){
       if(this.active>=4||!this.queue.length)return;
@@ -62,7 +71,8 @@
             try{const data=await this.json(source,5000),image=data.image||data.image_uri;url=imageURL(image?new URL(image,source).href:null);if(url)break;}catch(_){}
           }
         }
-        entry.url=proxy||url;entry.backup=proxy?url:null;
+        if(url&&entry.failed.has(url)&&!proxy)url=null;
+        entry.url=proxy||url;entry.backup=proxy&&!entry.failed.has(url)?url:null;
         const causes=(entry.diagnostics?.attempts||[]).map(a=>a.status);
         entry.status=entry.url?'Loading image':causes.includes('tls_certificate_failed')?'Python TLS certificate error · click for help':!uri?'Looking up artwork by mint · unavailable so far':'Metadata unavailable · click for details';
       }catch(_){entry.url=null;entry.status='Metadata unavailable · retry later';}
@@ -101,6 +111,6 @@
       });return true;
     }
   }
-  const api={imageURL,metadataURL,Artwork,WhaleTracker,Sounds};
+  const api={imageURL,pumpImageURL,metadataURL,Artwork,WhaleTracker,Sounds};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.MarketExtras=api;
 })(typeof window!=='undefined'?window:globalThis);

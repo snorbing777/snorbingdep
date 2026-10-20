@@ -13,6 +13,7 @@ const path=require('node:path');
    const page=await context.newPage(),errors=[],sockets=[];page.on('pageerror',error=>errors.push(error.message));
    await page.addInitScript(()=>{window.desktopEvents=[];window.Notification=class{static permission='granted';static async requestPermission(){return 'granted';}constructor(title,options){desktopEvents.push({title,...options});}};});
    await page.routeWebSocket('wss://pumpportal.fun/api/data',ws=>{sockets.push(ws);ws.onMessage(()=>{});});
+   await page.route('https://images.pump.fun/coin-image/**',route=>route.fulfill({status:404,body:'fixture exercises authenticated metadata fallback'}));
    const mint='So11111111111111111111111111111111111111112',now=Date.now()/1000;let observed=now;
    let research={observed_at:observed,status:'screen_blocked',eligible:false,score:55,metrics:{liquidity_usd:90000},checks:{liquidity:true,narrative_evidence:false},narrative:{reason:'No narrative measurements'},thresholds:{},sources:[],unknowns:[]};
    let paper={time:0,mode:'waiting',candidates:[],alerts:[],positions:[]},live={...paper};

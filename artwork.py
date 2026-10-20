@@ -47,8 +47,8 @@ def safe_url(value):
 
 class Redirects(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
-        safe_url(newurl)
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
+        normalized = safe_url(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, normalized)
 
 
 def candidates(url):
@@ -94,7 +94,9 @@ def chain_uri(mint):
     public = Pubkey.from_string(mint)
     info = account(mint, "jsonParsed")
     if info:
-        for extension in info.get("data", {}).get("parsed", {}).get("info", {}).get("extensions", []):
+        parsed = info.get("data")
+        parsed = parsed.get("parsed", {}).get("info", {}) if isinstance(parsed, dict) else {}
+        for extension in parsed.get("extensions", []):
             if extension.get("extension") == "tokenMetadata" and extension.get("state", {}).get("uri"):
                 return extension["state"]["uri"].strip("\x00 ")
     program = Pubkey.from_string(METAPLEX)

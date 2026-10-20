@@ -29,7 +29,7 @@ def health():
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         with opener.open("http://127.0.0.1:8765/api/health", timeout=2) as response:
             data = json.load(response)
-        return data.get("app") == "signal-desk" and data.get("version") == 3
+        return data.get("app") == "signal-desk" and data.get("version") == 4
     except (OSError, ValueError):
         return False
 
@@ -69,7 +69,7 @@ def main(argv=None):
         executable.write_text("#!/bin/bash\nexec "+shlex.quote(sys.executable)+" "+shlex.quote(str(ROOT/"mac_app.py"))+" open\n")
         executable.chmod(0o755)
         (app/"Contents/Info.plist").write_bytes(plistlib.dumps(dict(CFBundleIdentifier=LABEL, CFBundleName="Signal Desk",
-            CFBundleExecutable="SignalDesk", CFBundlePackageType="APPL", CFBundleVersion="3", LSUIElement=True)))
+            CFBundleExecutable="SignalDesk", CFBundlePackageType="APPL", CFBundleVersion="4", LSUIElement=True)))
         if loaded:
             subprocess.run(["launchctl", "bootout", domain+"/"+LABEL], check=True, capture_output=True)
         agent.write_bytes(plistlib.dumps(agent_config(ROOT, sys.executable)))

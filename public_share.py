@@ -11,9 +11,11 @@ import queue
 import re
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import tarfile
+import tempfile
 import threading
 import time
 import urllib.error
@@ -91,7 +93,7 @@ def setup_password(path):
     header = "Basic "+base64.b64encode(("signaldesk:"+password).encode()).decode()
     if path.exists():
         if not public_access.load(path).check(header):
-            raise SetupError("The dashboard password did not match. No access settings were changed.")
+            raise SetupError('The dashboard password did not match. Run bash "Reset Dashboard Password.command" to choose a new one. No access settings were changed.')
     else:
         config = public_access.password_config(password)
         if getpass.getpass("Repeat dashboard password: ") != password:
@@ -101,6 +103,59 @@ def setup_password(path):
         with os.fdopen(fd, "w") as file:
             json.dump(config, file)
     return header
+
+
+def new_password(path):
+    """Validate locally before stopping a service or replacing its access file."""
+    if path.is_symlink() or (path.exists() and (not path.is_file() or path.stat().st_uid != os.getuid())):
+        raise SetupError("Access settings must be a regular file owned by your macOS user.")
+    password = getpass.getpass("Choose a NEW dashboard password (16+ characters; typing is hidden): ")
+    try:
+        config = public_access.password_config(password)
+    except ValueError as exc:
+        raise SetupError(str(exc)) from None
+    if getpass.getpass("Repeat the NEW dashboard password: ") != password:
+        raise SetupError("Passwords did not match. Your existing password and sharing service were not changed.")
+    return config, "Basic "+base64.b64encode(("signaldesk:"+password).encode()).decode()
+
+
+def replace_password(path, config):
+    # A temporary file in the same directory makes replacement atomic. Only a
+    # salted hash is written; wallet files and trade journals are never touched.
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if path.is_symlink() or (path.exists() and (not path.is_file() or path.stat().st_uid != os.getuid())):
+        raise SetupError("Access settings must be a regular file owned by your macOS user.")
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", dir=path.parent, prefix=".dashboard-access-", delete=False) as file:
+            temporary = Path(file.name)
+            os.fchmod(file.fileno(), 0o600)
+            json.dump(config, file)
+            file.flush()
+            os.fsync(file.fileno())
+        os.replace(temporary, path)
+    finally:
+        if temporary and temporary.exists():
+            temporary.unlink()
+
+
+def stop_for_restart(domain):
+    loaded = subprocess.run(["launchctl", "print", domain+"/"+LABEL], capture_output=True).returncode == 0
+    result = subprocess.run(["launchctl", "bootout", domain+"/"+LABEL], capture_output=True)
+    if loaded and result.returncode:
+        raise SetupError("Could not stop public sharing. The password was not changed. Check macOS Login Items and retry.")
+    # Never leave a manually started/old authenticated server accepting the old
+    # password after reporting a reset. Do not kill an unknown port owner.
+    for _ in range(20):
+        with socket.socket() as probe:
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                probe.bind(("127.0.0.1", 8787))
+                return
+            except OSError:
+                pass
+        time.sleep(.25)
+    raise SetupError("The old sharing server still occupies port 8787. Stop its Terminal with Control-C, then retry. The password was not changed.")
 
 
 def sharing_config(binary, access):
@@ -176,7 +231,7 @@ def run(binary, access):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["install", "run", "open", "stop"])
+    parser.add_argument("action", choices=["install", "reset-password", "run", "open", "stop"])
     parser.add_argument("--binary", type=Path)
     parser.add_argument("--access", type=Path)
     args = parser.parse_args(argv)
@@ -205,14 +260,22 @@ def main(argv=None):
         return
     home = Path.home()
     access = auth_file(home)
-    authorization = setup_password(access)
+    reset = args.action == "reset-password"
+    if reset:
+        config, authorization = new_password(access)
+        stop_for_restart(domain)
+        replace_password(access, config)
+        print("Dashboard password reset. Public sharing was stopped and will now restart with the updated code. Your wallet and trading records were not changed.")
+    else:
+        authorization = setup_password(access)
     binary = verified_binary(home)
     import plistlib
     (ROOT/".local").mkdir(exist_ok=True)
     agent = home/"Library/LaunchAgents"/(LABEL+".plist")
     agent.parent.mkdir(parents=True, exist_ok=True)
     started = time.time()
-    subprocess.run(["launchctl", "bootout", domain+"/"+LABEL], capture_output=True)
+    if not reset:
+        stop_for_restart(domain)
     agent.write_bytes(plistlib.dumps(sharing_config(binary, access))); agent.chmod(0o600)
     if subprocess.run(["launchctl", "bootstrap", domain, str(agent)], capture_output=True).returncode:
         raise SetupError("Sharing LaunchAgent could not load. Check macOS Login Items and project-folder access.")
@@ -223,10 +286,13 @@ def main(argv=None):
             try:
                 req = urllib.request.Request("http://127.0.0.1:8787/api/health", headers={"Authorization": authorization})
                 with opener.open(req, timeout=2) as response:
-                    ready = json.load(response).get("app") == "signal-desk"
+                    health = json.load(response)
+                    ready = health.get("app") == "signal-desk" and health.get("version") == dashboard.VERSION
                 if ready:
                     print("Your public HTTPS address: "+url)
-                    print("Username: signaldesk. Use the new dashboard password you chose. Keep your Mac awake and online; the address can change after a sharing restart.")
+                    print("Username: signaldesk. Use your dashboard password. Keep your Mac awake and online; the address can change after a sharing restart.")
+                    if reset:
+                        print("Use this new address. If your browser reuses the old password, open the new address in a private window and log in again.")
                     print("Sharing runs in the background; Terminal can close. This does not start a trading process.")
                     webbrowser.open(url)
                     return

@@ -139,7 +139,7 @@ No funded Phantom manual trade or production artwork delivery is verified here.
 
 
 EVERY-ANALYSIS ALERTS / MINT ARTWORK / FREE PUBLIC LINK
-After git pull, restart the dashboard server (web server v3). New frontend files
+After git pull, restart the dashboard server (web server v4). New frontend files
 alone cannot enable new backend routes; a notice flags an old running server.
 The Analysis & trade pop-ups panel has separate analysis / runner / trade toggles.
 Rejected coin analyses pop up too. Paper fills, confirmed live fills and confirmed
@@ -148,13 +148,16 @@ all market AND fresh narrative checks; it is not a 100x forecast or buy instruct
 Enable notifications on the current browser origin for desktop delivery. Pop-ups
 require the dashboard tab open; permission and macOS Focus control OS delivery.
 
-Coin artwork is looked up by exact mint if the stream has no image/URI. Click
+Coin artwork loads from pump.fun's mint-specific image service directly in the
+browser when the stream has no image. This bypasses metadata API and Python TLS
+lookups. If that image fails, metadata/on-chain/IPFS fallbacks are tried. Click
 its artwork-status text to view and copy diagnostics; retry can refresh lookup.
 No real provider artwork delivery was verified here (cloud proxy 403).
 
 To get a free public HTTPS hostname without buying a domain:
   bash "Share Dashboard.command"
-Choose a NEW dashboard password (16+ characters); browser username: signaldesk.
+First setup: choose a NEW dashboard password (16+ characters). Later runs:
+enter the existing dashboard password. Browser username: signaldesk.
 The helper installs only an official SHA-256-verified cloudflared release if
 needed, registers a background sharing agent and opens the new trycloudflare.com
 address. The password is not printed/stored in plaintext. Keep the Mac awake and
@@ -165,3 +168,20 @@ Stop sharing and disable its login startup:
   bash "Stop Public Sharing.command"
 The local dashboard remains available. Do not publish wallet files, API keys or
 the dashboard password. Actual macOS and public-tunnel startup need local testing.
+
+FORGOT THE DASHBOARD PASSWORD / RESTART PUBLIC SHARING
+In a new Terminal window run:
+  cd ~/Downloads/snorbingdep
+  git pull --ff-only
+  bash "Reset Dashboard Password.command"
+Choose and repeat a NEW password of at least 16 characters. Characters will not
+appear while typing; press Return after each entry. Your old password is not
+needed. Only the dashboard access hash changes. The helper stops the old public
+server and restarts sharing with the current code; wallet files, funds, positions
+and trading journals are preserved. If stopping fails the old password remains.
+If startup fails after reset, the new password remains; use it next time.
+Use the NEW link printed in Terminal, username signaldesk, and your new password.
+If the browser insists on the old password, use a private window for the new link.
+Footer: Server v4. For the separate LOCAL app also run:
+  bash "Restart Dashboard.command"
+Restarting the local dashboard alone does not update the public sharing server.

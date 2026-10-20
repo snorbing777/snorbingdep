@@ -548,6 +548,17 @@ Actual operating-system delivery is subject to permissions and Focus settings;
 no notification was observed on a real Mac during cloud tests.
 
 Artwork no longer depends on an image or URI being present in the creation event.
+Each valid mint without a usable stream image first loads its own image from
+`https://images.pump.fun/coin-image/<mint>?img-width=128&img-dpr=2` directly in
+the browser. This needs no metadata JSON, RPC lookup, API key or Python TLS
+connection. A failed stream image tries this same mint-specific source before
+falling back to metadata. No generic image is requested as an error redirect.
+Only a browser load success marks artwork as loaded. Missing or inaccessible
+creator images still show their status and can be retried; no unrelated coin
+picture is substituted. Real provider responses remain unverified in this
+cloud because its egress proxy denies the requests.
+
+If direct loading fails,
 `artwork.py` tries exact-mint Pump.fun public coin metadata, Token-2022 mint
 metadata / the mint's Metaplex metadata account, and an indexed DexScreener
 fallback. Relative image fields, common aliases, IPFS gateway/subdomain URLs and
@@ -572,7 +583,8 @@ app, then run:
 bash "Share Dashboard.command"
 ```
 
-Choose a NEW dashboard password of at least 16 characters. The browser username
+On first setup choose a NEW dashboard password of at least 16 characters. On
+later runs enter the existing dashboard password. The browser username
 is **signaldesk**. This is a dashboard login, not a pump.fun login or wallet seed.
 If `cloudflared` is not already installed, the helper downloads the official
 Cloudflare macOS release from GitHub and verifies the archive against the
@@ -614,8 +626,31 @@ bash "Stop Public Sharing.command"
 ```
 
 The local dashboard and trading processes are unaffected. Run Share Dashboard
-again to re-enable it; use the existing dashboard password when prompted. You
-cannot reset that password by replacing trading-wallet files.
+again to re-enable it; use the existing dashboard password when prompted.
+
+Forgot or mistyped the dashboard password? In your Mac project folder run:
+
+```sh
+git pull --ff-only
+bash "Reset Dashboard Password.command"
+```
+
+Choose and repeat a new password of **at least 16 characters**. Terminal hides
+the characters while you type; press Return after each entry. The old password
+is not required. Validation happens before stopping sharing. The command then
+stops the old public service, atomically replaces only its private salted hash,
+and restarts public sharing with the current code. If the old service cannot
+stop, the password is not replaced. If restart fails after replacement, sharing
+stays stopped and the new password is retained; rerun Share Dashboard.command
+with the new password once the reported startup problem is resolved.
+
+Use the **new link** it prints and username **signaldesk**. Open the new link in
+a private browser window if the browser keeps submitting the previous password.
+The local dashboard, trading wallet, balances, positions and pending journals
+are unaffected. This does not reset a Phantom or pump.fun account password.
+The public server is separate from the local app: restarting the local app alone
+does not update an already running public server. For a local app update run
+Restart Dashboard.command too. The footer should show **Server v4**.
 
 Additional tests: `node --test tests/test_alerts.cjs` covers analysis/fill
 classification, full runner gating, freshness and deduplication. With Chromium

@@ -17,7 +17,7 @@ import public_access
 from callouts import public_snapshot
 
 MANUAL_SLOT = threading.BoundedSemaphore(1)
-VERSION = 3
+VERSION = 4
 
 
 class Handler(BaseHTTPRequestHandler):

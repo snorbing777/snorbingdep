@@ -11,7 +11,7 @@ import unittest
 import urllib.error
 import urllib.request
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
@@ -51,6 +51,8 @@ class ArtworkDiscoveryTests(unittest.TestCase):
             return {'result':{'value':{'owner':artwork.METAPLEX,'data':[base64.b64encode(raw).decode(),'base64']}}}
         with patch('artwork.read_json',side_effect=[{'result':{'value':None}},metadata(self.mint)]):
             self.assertEqual(artwork.chain_uri(self.mint),'ipfs://legacy')
+        with patch('artwork.read_json',side_effect=[{'result':{'value':{'data':['unparsed mint bytes','base64']}}},metadata(self.mint)]):
+            self.assertEqual(artwork.chain_uri(self.mint),'ipfs://legacy')
         with patch('artwork.read_json',side_effect=[{'result':{'value':None}},metadata(str(Keypair().pubkey()))]):
             with self.assertRaises(ValueError): artwork.chain_uri(self.mint)
 
@@ -67,6 +69,14 @@ class ArtworkDiscoveryTests(unittest.TestCase):
         self.assertEqual(artwork.safe_url('https://'+cid+'.ipfs.untrusted.example/image.png'),'https://ipfs.io/ipfs/'+cid+'/image.png')
         self.assertEqual(artwork.safe_url('http://ipfs.io/ipfs/'+cid),'https://ipfs.io/ipfs/'+cid)
         with self.assertRaises(ValueError): artwork.safe_url('https://untrusted.example/private')
+
+    def test_redirect_fetches_normalized_gateway_instead_of_untrusted_host(self):
+        request=urllib.request.Request('https://ipfs.io/ipfs/start')
+        cid='bafy'+'a'*50
+        redirect=artwork.Redirects().redirect_request(request,None,302,'Found',{},'https://127.0.0.1/ipfs/'+cid+'/art.png')
+        self.assertEqual(redirect.full_url,'https://ipfs.io/ipfs/'+cid+'/art.png')
+        with self.assertRaises(ValueError):
+            artwork.Redirects().redirect_request(request,None,302,'Found',{},'https://127.0.0.1/private')
 
     def test_avif_raster_and_image_byte_cache(self):
         body=b'\x00\x00\x00\x20ftypavif'+bytes(20)
@@ -93,7 +103,7 @@ class SharingTests(unittest.TestCase):
                     with self.assertRaises(urllib.error.HTTPError) as caught: opener.open(base+path)
                     self.assertEqual(caught.exception.code,401)
                 request=urllib.request.Request(base+'/api/health',headers={'Authorization':self.header,'Host':'test.trycloudflare.com'})
-                with opener.open(request) as response:self.assertEqual(json.load(response)['version'],3)
+                with opener.open(request) as response:self.assertEqual(json.load(response)['version'],4)
                 with patch('dashboard.manual_trading.prepare') as prepare:
                     request=urllib.request.Request(base+'/api/manual/prepare',data=b'{}',headers={'Authorization':self.header,'Host':'test.trycloudflare.com','Origin':'https://evil.example','Content-Type':'application/json'})
                     with self.assertRaises(urllib.error.HTTPError) as caught:opener.open(request)
@@ -145,6 +155,68 @@ class SharingTests(unittest.TestCase):
              patch('public_share.download',side_effect=[json.dumps(release).encode(),b'wrong archive']):
             with self.assertRaisesRegex(public_share.SetupError,'checksum'):public_share.verified_binary(Path(directory))
             self.assertFalse((Path(directory)/'.config/snorbingdep/bin/cloudflared').exists())
+
+    def test_reset_replaces_only_access_hash_and_rejects_old_password(self):
+        new='new-test-only-dashboard-password'
+        with tempfile.TemporaryDirectory() as directory:
+            home=Path(directory);path=public_share.auth_file(home)
+            public_share.replace_password(path,public_access.password_config(self.password))
+            wallet=path.parent/'trading-wallet.json';wallet.write_bytes(b'fixture, not a signer')
+            journal=home/'pending.json';journal.write_bytes(b'preserve journal')
+            with patch('public_share.getpass.getpass',side_effect=[new,new]):
+                config,header=public_share.new_password(path)
+            public_share.replace_password(path,config)
+            checker=public_access.load(path)
+            self.assertTrue(checker.check(header));self.assertFalse(checker.check(self.header))
+            self.assertEqual(path.stat().st_mode&0o777,0o600)
+            self.assertNotIn(new,path.read_text());self.assertNotIn(self.password,path.read_text())
+            self.assertEqual(wallet.read_bytes(),b'fixture, not a signer');self.assertEqual(journal.read_bytes(),b'preserve journal')
+            self.assertEqual(list(path.parent.glob('.dashboard-access-*')),[])
+            before=path.read_bytes()
+            with patch('public_share.getpass.getpass',side_effect=[new,'different']):
+                with self.assertRaisesRegex(public_share.SetupError,'not match'):public_share.new_password(path)
+            self.assertEqual(path.read_bytes(),before)
+            link=home/'symlink.json';link.symlink_to(path)
+            with self.assertRaisesRegex(public_share.SetupError,'regular file'):public_share.replace_password(link,config)
+            self.assertEqual(path.read_bytes(),before)
+
+    def test_reset_stops_old_service_before_replacing_hash_and_restarts_updated_server(self):
+        new='new-test-only-dashboard-password';calls=[]
+        with tempfile.TemporaryDirectory() as directory:
+            home=Path(directory);root=home/'project';root.mkdir()
+            path=public_share.auth_file(home)
+            public_share.replace_password(path,public_access.password_config(self.password))
+            old=path.read_bytes()
+            def stop(domain):
+                self.assertEqual(path.read_bytes(),old);calls.append('stop')
+            def command(args,**kwargs):
+                self.assertEqual(args[1],'bootstrap');calls.append('bootstrap')
+                self.assertFalse(public_access.load(path).check(self.header))
+                return Mock(returncode=0)
+            response=Mock();response.__enter__=Mock(return_value=io.BytesIO(b'{"app":"signal-desk","version":4}'));response.__exit__=Mock(return_value=False)
+            with patch.object(public_share.sys,'platform','darwin'),patch.object(public_share,'ROOT',root), \
+                 patch.object(Path,'home',return_value=home),patch('public_share.getpass.getpass',side_effect=[new,new]), \
+                 patch('public_share.stop_for_restart',side_effect=stop),patch('public_share.verified_binary',return_value=Path('/fixture/cloudflared')), \
+                 patch('public_share.subprocess.run',side_effect=command),patch('public_share.current_url',return_value='https://new-link.trycloudflare.com'), \
+                 patch('public_share.urllib.request.build_opener') as opener,patch('public_share.webbrowser.open') as opened,patch('builtins.print'):
+                opener.return_value.open.return_value=response
+                public_share.main(['reset-password'])
+                opened.assert_called_once_with('https://new-link.trycloudflare.com')
+                self.assertTrue(public_access.load(path).check(opener.return_value.open.call_args.args[0].get_header('Authorization')))
+            self.assertEqual(calls,['stop','bootstrap'])
+
+    def test_failed_service_stop_prevents_password_reset(self):
+        new='new-test-only-dashboard-password'
+        with tempfile.TemporaryDirectory() as directory:
+            home=Path(directory);path=public_share.auth_file(home)
+            public_share.replace_password(path,public_access.password_config(self.password));before=path.read_bytes()
+            with patch.object(public_share.sys,'platform','darwin'),patch.object(Path,'home',return_value=home), \
+                 patch('public_share.getpass.getpass',side_effect=[new,new]), \
+                 patch('public_share.subprocess.run',side_effect=[Mock(returncode=0),Mock(returncode=1)]), \
+                 patch('public_share.verified_binary') as binary:
+                with self.assertRaisesRegex(public_share.SetupError,'Could not stop'):public_share.main(['reset-password'])
+                binary.assert_not_called()
+            self.assertEqual(path.read_bytes(),before)
 
 
 if __name__=='__main__':unittest.main()

@@ -1,6 +1,28 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
-const {imageURL,metadataURL,Artwork,WhaleTracker,Sounds}=require('../market_extras.js');
+const {imageURL,pumpImageURL,metadataURL,Artwork,WhaleTracker,Sounds}=require('../market_extras.js');
+test('mint-specific pump artwork starts without a metadata URI, Python RPC or metadata request',()=>{
+  let fetched=0;const artwork=new Artwork({fetchImpl:()=>{fetched++;throw Error('must not fetch metadata');}});
+  const first={mint:'So11111111111111111111111111111111111111112'},second={mint:'2'.repeat(32)};
+  assert.equal(artwork.get(first),'https://images.pump.fun/coin-image/'+first.mint+'?img-width=128&img-dpr=2');
+  assert.notEqual(artwork.get(first),artwork.get(second));
+  artwork.loaded(first.mint,artwork.get(first));assert.equal(artwork.status(first.mint),'Artwork loaded');
+  assert.equal(fetched,0);
+  for(const mint of ['../secret','x?mint=other','https://localhost','0'.repeat(32)])assert.equal(pumpImageURL(mint),null);
+});
+test('broken stream image tries pump artwork, then metadata proxy; stale errors cannot remove recovered image',async()=>{
+  let finish,fetches=0;const done=new Promise(resolve=>finish=resolve);
+  const artwork=new Artwork({fetchImpl:async()=>{fetches++;return new Response(JSON.stringify({image:'https://ipfs.io/ipfs/fixture',proxy:'/api/token-image?url=fixture'}));},onChange:()=>{if(fetches&&![...artwork.cache.values()].some(entry=>entry.pending))finish();}});
+  const token={mint:'So11111111111111111111111111111111111111112',image:'https://example.com/stream.png'};
+  const original=artwork.get(token);artwork.reject(token.mint,original);
+  assert.equal(artwork.get(token),pumpImageURL(token.mint));assert.equal(fetches,0);
+  artwork.reject(token.mint,artwork.get(token));await done;
+  assert.equal(artwork.get(token),'/api/token-image?url=fixture');assert.equal(fetches,1);
+  assert.ok(artwork.diagnostics(token.mint).attempts.some(a=>a.source==='Pump.fun image service'));
+  artwork.reject(token.mint,original);assert.equal(artwork.get(token),'/api/token-image?url=fixture');
+  artwork.loaded(token.mint,original);assert.notEqual(artwork.status(token.mint),'Artwork loaded');
+  artwork.retry(token.mint);assert.equal(artwork.get(token),pumpImageURL(token.mint));
+});
 test('images use public HTTPS URLs and metadata uses known gateways',()=>{
   assert.equal(imageURL('ipfs://QmExample'),'https://ipfs.io/ipfs/QmExample');
   assert.equal(imageURL('ar://example'),'https://arweave.net/example');

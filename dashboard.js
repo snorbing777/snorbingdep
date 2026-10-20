@@ -20,7 +20,7 @@ $('close-image').onclick=()=>$('image-dialog').close();
 $('copy-image-details').onclick=async()=>{try{await navigator.clipboard.writeText($('art-mint').textContent+'\n'+$('art-details').textContent);$('copy-image-details').textContent='Diagnostics copied';}catch(_){$('copy-image-details').textContent='Select the diagnostic text and copy it';}};
 $('retry-one-image').onclick=()=>{if(imageMint){artwork.retry(imageMint);showImageDetails(imageMint);}};
 function showImageDetails(mint,inspect=false){imageMint=mint;$('art-mint').textContent=mint;const d=artwork.diagnostics(mint);
-  $('art-details').textContent=`${d.status}\nImage URL in launch event: ${d.stream_image_present?'yes':'no'}\nMetadata URI in launch event: ${d.stream_uri_present?'yes':'no'}\n`+(d.attempts||[]).map(a=>a.stage+': '+a.status).join('\n')+(d.proxy_failure?'\nImage proxy: '+d.proxy_failure:'')+'\n\nTLS error: run the matching Python Install Certificates.command on macOS. HTTP 429: provider rate limit. Missing metadata: the creator may not have published accessible artwork.';
+  $('art-details').textContent=`${d.status}\nImage URL in launch event: ${d.stream_image_present?'yes':'no'}\nMetadata URI in launch event: ${d.stream_uri_present?'yes':'no'}\n`+(d.attempts||[]).map(a=>a.stage+(a.source?' ('+a.source+')':'')+': '+a.status).join('\n')+(d.proxy_failure?'\nImage proxy: '+d.proxy_failure:'')+'\n\nPump.fun image service failures: check browser/network access or retry after the creator image is published. Python TLS error: run the matching Python Install Certificates.command on macOS. HTTP 429: provider rate limit. Missing metadata: the creator may not have published accessible artwork.';
   if(!$('image-dialog').open)$('image-dialog').showModal();
   if(inspect)artwork.inspect(mint).then(()=>{if(imageMint===mint&&$('image-dialog').open)showImageDetails(mint);});
 }
@@ -66,7 +66,7 @@ function renderArtwork(card,t){
   if(previous?.dataset.url===url)return;
   previous?.remove();
   if(url){const img=document.createElement('img');img.dataset.url=url;img.alt=t.name+' token artwork';img.loading='lazy';img.decoding='async';img.referrerPolicy='no-referrer';
-    img.onload=()=>{artwork.loaded(t.mint);status.textContent='Artwork loaded';};
+    img.onload=()=>{artwork.loaded(t.mint,url);status.textContent=artwork.status(t.mint);};
     img.onerror=()=>{img.remove();artwork.reject(t.mint,url);};img.src=url;avatar.append(img);
   }
 }
@@ -244,5 +244,5 @@ async function refreshSections(){
   }
 }
 refreshSections();setInterval(refreshSections,3000);
-async function checkVersion(){try{const response=await fetch('/api/health',{cache:'no-store'}),data=await response.json();$('update-warning').classList.toggle('hidden',data.version>=3);$('app-version').textContent='Server v'+(data.version||'unknown');}catch(_){$('app-version').textContent='Server unavailable';}}
+async function checkVersion(){try{const response=await fetch('/api/health',{cache:'no-store'}),data=await response.json();$('update-warning').classList.toggle('hidden',data.version>=4);$('app-version').textContent='Server v'+(data.version||'unknown');}catch(_){$('app-version').textContent='Server unavailable';}}
 checkVersion();setInterval(checkVersion,30000);
