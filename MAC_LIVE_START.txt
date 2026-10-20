@@ -139,7 +139,7 @@ No funded Phantom manual trade or production artwork delivery is verified here.
 
 
 EVERY-ANALYSIS ALERTS / MINT ARTWORK / FREE PUBLIC LINK
-After git pull, restart the dashboard server (web server v4). New frontend files
+After git pull, restart the dashboard server (web server v5). New frontend files
 alone cannot enable new backend routes; a notice flags an old running server.
 The Analysis & trade pop-ups panel has separate analysis / runner / trade toggles.
 Rejected coin analyses pop up too. Paper fills, confirmed live fills and confirmed
@@ -148,10 +148,12 @@ all market AND fresh narrative checks; it is not a 100x forecast or buy instruct
 Enable notifications on the current browser origin for desktop delivery. Pop-ups
 require the dashboard tab open; permission and macOS Focus control OS delivery.
 
-Coin artwork loads from pump.fun's mint-specific image service directly in the
-browser when the stream has no image. This bypasses metadata API and Python TLS
-lookups. If that image fails, metadata/on-chain/IPFS fallbacks are tried. Click
-its artwork-status text to view and copy diagnostics; retry can refresh lookup.
+Coin artwork comes from the image URL in its creation event or creator metadata.
+Browser metadata and the local lookup run together; slow Python requests do not
+hold up accessible browser metadata. Mint-only cache entries accept later URIs.
+Visible stalled image downloads switch source after six seconds. All retained
+pairs (up to 1000) are shown without Show more; Show all received pairs clears
+filters and resumes the feed. Click artwork status to copy failure diagnostics.
 No real provider artwork delivery was verified here (cloud proxy 403).
 
 To get a free public HTTPS hostname without buying a domain:
@@ -182,6 +184,8 @@ and trading journals are preserved. If stopping fails the old password remains.
 If startup fails after reset, the new password remains; use it next time.
 Use the NEW link printed in Terminal, username signaldesk, and your new password.
 If the browser insists on the old password, use a private window for the new link.
-Footer: Server v4. For the separate LOCAL app also run:
+Footer: Server v5. After each update run:
   bash "Restart Dashboard.command"
-Restarting the local dashboard alone does not update the public sharing server.
+Restart Dashboard.command now refreshes both installed dashboard services,
+preserves the password and opens the new sharing link. No password prompt is
+needed for restart; the browser still requires your existing signaldesk login.

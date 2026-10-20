@@ -20,7 +20,6 @@ const {chromium}=require('playwright');
  await page.route('**/api/analysis?*',route=>route.fulfill({json:report}));
  // Reproduce local resolver failure; the browser must fetch metadata itself.
  await page.route('**/api/artwork?*',route=>route.fulfill({status:503,json:{error:'resolver unavailable'}}));
- await page.route('https://images.pump.fun/coin-image/**',route=>route.fulfill({status:404,body:'fixture exercises browser metadata recovery'}));
  await page.route('https://ipfs.io/ipfs/TestMetadata',route=>route.fulfill({contentType:'application/json',headers:{'access-control-allow-origin':'*'},body:'{"image":"https://images.example.com/recovered.png"}'}));
  const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jv1kAAAAASUVORK5CYII=','base64');
  await page.route('https://images.example.com/recovered.png',async route=>{await new Promise(resolve=>setTimeout(resolve,600));await route.fulfill({contentType:'image/png',body:png});});

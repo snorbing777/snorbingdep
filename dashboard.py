@@ -17,7 +17,7 @@ import public_access
 from callouts import public_snapshot
 
 MANUAL_SLOT = threading.BoundedSemaphore(1)
-VERSION = 4
+VERSION = 5
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -211,7 +211,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "private, max-age=300" if route == "/api/token-image" else "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
-        self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self' https:; connect-src 'self' wss://pumpportal.fun https://ipfs.io https://gateway.pinata.cloud https://pump.mypinata.cloud https://arweave.net https://*.ipfs.dweb.link; frame-ancestors 'none'; base-uri 'none'")
+        self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self' https:; connect-src 'self' wss://pumpportal.fun https://ipfs.io https://gateway.pinata.cloud https://pump.mypinata.cloud https://arweave.net https://dweb.link https://*.ipfs.dweb.link; frame-ancestors 'none'; base-uri 'none'")
         self.end_headers()
         self.wfile.write(body)
 

@@ -14,7 +14,7 @@
     return {mint: message.mint, name: String(message.name || 'Unnamed token').slice(0, 100),
       symbol: String(message.symbol || 'TOKEN').slice(0, 24), receivedAt: now,
       marketCapSol: positive(message.marketCapSol), initialBuy: positive(message.initialBuy),
-      image: [message.image,message.image_uri,message.imageUri].find(x=>typeof x==='string'&&x)?.slice(0,2048)||null,
+      image: [message.image,message.image_uri,message.imageUri,message.image_url,message.imageUrl].find(x=>typeof x==='string'&&x)?.slice(0,2048)||null,
       uri: [message.uri,message.metadata_uri,message.metadataUri].find(x=>typeof x==='string'&&x)?.slice(0,2048)||null,
       creatorSol: positive(message.solAmount), signature: typeof message.signature === 'string' ? message.signature : null};
   }
@@ -22,7 +22,12 @@
     constructor(limit = LIMIT) { this.limit = limit; this.items = []; this.seen = new Set(); this.total = 0; this.arrivals = []; }
     add(message, now) {
       const token = parseLaunch(message, now);
-      if (!token || this.seen.has(token.mint)) return null;
+      if (!token) return null;
+      if(this.seen.has(token.mint)){
+        const previous=this.items.find(item=>item.mint===token.mint);
+        if(previous)for(const field of ['uri','image'])if(token[field])previous[field]=token[field];
+        return null;
+      }
       this.seen.add(token.mint);
       // Bound memory without pretending the session is a complete chain archive.
       if (this.seen.size > 10000) this.seen.delete(this.seen.values().next().value);
@@ -49,6 +54,7 @@
       this.setTimer = (fn, delay) => setTimer.call(root, fn, delay);
       this.clearTimer = id => clearTimer.call(root, id);
       this.stopped = true; this.attempt = 0; this.generation = 0; this.gap = false;
+      this.connectTimer = null;
       this.tradeTokens = [];
     }
     start() { if (!this.stopped) return; this.stopped = false; this.open(); }
@@ -59,8 +65,13 @@
       let socket;
       try { socket = this.socket = new this.WebSocketImpl(ENDPOINT); }
       catch (_) { this.retry(); return; }
+      this.connectTimer=this.setTimer(()=>{
+        if(this.stopped||generation!==this.generation)return;
+        ++this.generation;socket.close();this.retry();
+      },15000);
       socket.onopen = () => {
         if (this.stopped || generation !== this.generation) return;
+        this.clearTimer(this.connectTimer);this.connectTimer=null;
         socket.send(JSON.stringify({method: 'subscribeNewToken'}));
         if(this.tradeTokens.length)socket.send(JSON.stringify({method:'subscribeTokenTrade',keys:this.tradeTokens}));
         this.attempt = 0;
@@ -81,6 +92,7 @@
       socket.onerror = () => { if (!this.stopped && generation === this.generation) socket.close(); };
       socket.onclose = () => {
         if (this.stopped || generation !== this.generation) return;
+        this.clearTimer(this.connectTimer);this.connectTimer=null;
         this.retry();
       };
     }
@@ -89,11 +101,13 @@
       this.gap = true;
       this.onStatus({state: 'reconnecting', gap: true});
       this.clearTimer(this.timer);
+      this.clearTimer(this.connectTimer);this.connectTimer=null;
       this.timer = this.setTimer(() => this.open(), Math.min(30000, 1000 * 2 ** this.attempt++));
     }
     stop(announce = true) {
       this.stopped = true; this.gap = true; ++this.generation;
       this.clearTimer(this.timer);
+      this.clearTimer(this.connectTimer);this.connectTimer=null;
       if (this.socket) this.socket.close();
       if (announce) this.onStatus({state: 'paused', gap: true});
     }

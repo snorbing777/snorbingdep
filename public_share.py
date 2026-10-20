@@ -165,12 +165,14 @@ def sharing_config(binary, access):
         "EnvironmentVariables": {"PYTHONUNBUFFERED": "1"}}
 
 
-def current_url(since=0):
+def current_url(since=0, version=None):
     try:
         state = json.loads((ROOT/".local/public-share.json").read_text())
         if not URL.fullmatch(state["url"]) or type(state["pid"]) is not int or state["pid"] <= 0:
             return None
         if state.get("created_at", 0) < since:
+            return None
+        if version is not None and state.get("version") != version:
             return None
         os.kill(state["pid"], 0)
         return state["url"]
@@ -207,7 +209,7 @@ def run(binary, access):
             raise SetupError("Cloudflare did not provide a sharing address. Check internet/firewall access and retry; Quick Tunnels may also be unavailable when a default cloudflared config is present.")
         server = dashboard.make_server(8787, ROOT/".local/pump-live-state.dashboard.json", ROOT/".local/state.dashboard.json", address, password)
         threading.Thread(target=server.serve_forever, daemon=True).start()
-        save(ROOT/".local/public-share.json", {"url": address, "pid": os.getpid(), "created_at": time.time()})
+        save(ROOT/".local/public-share.json", {"url": address, "pid": os.getpid(), "created_at": time.time(), "version": dashboard.VERSION})
         print("Password-protected dashboard address: "+address, flush=True)
         while tunnel.poll() is None:
             time.sleep(1)
@@ -231,9 +233,10 @@ def run(binary, access):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["install", "reset-password", "run", "open", "stop"])
+    parser.add_argument("action", choices=["install", "restart", "reset-password", "run", "open", "stop"])
     parser.add_argument("--binary", type=Path)
     parser.add_argument("--access", type=Path)
+    parser.add_argument("--no-browser", action="store_true")
     args = parser.parse_args(argv)
     if args.action == "run":
         if not args.binary or not args.access:
@@ -266,6 +269,9 @@ def main(argv=None):
         stop_for_restart(domain)
         replace_password(access, config)
         print("Dashboard password reset. Public sharing was stopped and will now restart with the updated code. Your wallet and trading records were not changed.")
+    elif args.action == "restart":
+        public_access.load(access)  # Validate the private hash without asking for a password.
+        authorization = None
     else:
         authorization = setup_password(access)
     binary = verified_binary(home)
@@ -281,20 +287,25 @@ def main(argv=None):
         raise SetupError("Sharing LaunchAgent could not load. Check macOS Login Items and project-folder access.")
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     for _ in range(55):
-        url = current_url(since=started)
+        url = current_url(since=started, version=dashboard.VERSION)
         if url:
             try:
-                req = urllib.request.Request("http://127.0.0.1:8787/api/health", headers={"Authorization": authorization})
-                with opener.open(req, timeout=2) as response:
-                    health = json.load(response)
-                    ready = health.get("app") == "signal-desk" and health.get("version") == dashboard.VERSION
+                # Restart has no plaintext password: use the ready state written
+                # by the fresh child only after its authenticated server starts.
+                ready = authorization is None
+                if authorization is not None:
+                    req = urllib.request.Request("http://127.0.0.1:8787/api/health", headers={"Authorization": authorization})
+                    with opener.open(req, timeout=2) as response:
+                        health = json.load(response)
+                        ready = health.get("app") == "signal-desk" and health.get("version") == dashboard.VERSION
                 if ready:
                     print("Your public HTTPS address: "+url)
                     print("Username: signaldesk. Use your dashboard password. Keep your Mac awake and online; the address can change after a sharing restart.")
                     if reset:
                         print("Use this new address. If your browser reuses the old password, open the new address in a private window and log in again.")
                     print("Sharing runs in the background; Terminal can close. This does not start a trading process.")
-                    webbrowser.open(url)
+                    if not args.no_browser:
+                        webbrowser.open(url)
                     return
             except (OSError, ValueError):
                 pass

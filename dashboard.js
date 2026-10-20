@@ -4,7 +4,7 @@ const money = n => typeof n === 'number' && Number.isFinite(n) ? n.toLocaleStrin
 const compact = n => n === null ? '—' : n.toLocaleString(undefined, {maximumFractionDigits:2,notation:n>=10000?'compact':'standard'});
 function node(tag, text, cls) { const n=document.createElement(tag); n.textContent=text; if(cls)n.className=cls; return n; }
 function age(time) { const seconds=Math.max(0,Math.floor((Date.now()-time)/1000));return seconds<60?`${seconds}s ago`:seconds<3600?`${Math.floor(seconds/60)}m ago`:`${Math.floor(seconds/3600)}h ago`; }
-let notificationsEnabled=false, renderTimer=null, pageSize=60;
+let notificationsEnabled=false, renderTimer=null;
 const store = new PumpLaunchFeed.Store();
 let streamState='connecting', lastEvent=0;
 const cards=new Map();
@@ -64,12 +64,22 @@ function renderArtwork(card,t){
   status.setAttribute('role','button');status.tabIndex=0;status.onclick=()=>showImageDetails(t.mint,true);status.onkeydown=event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();showImageDetails(t.mint,true);}};
   if(imageMint===t.mint&&$('image-dialog').open)showImageDetails(t.mint);
   if(previous?.dataset.url===url)return;
-  previous?.remove();
+  if(previous){previous.cancelArtwork?.();previous.remove();}
   if(url){const img=document.createElement('img');img.dataset.url=url;img.alt=t.name+' token artwork';img.loading='lazy';img.decoding='async';img.referrerPolicy='no-referrer';
-    img.onload=()=>{artwork.loaded(t.mint,url);status.textContent=artwork.status(t.mint);};
-    img.onerror=()=>{img.remove();artwork.reject(t.mint,url);};img.src=url;avatar.append(img);
+    let timer=null;
+    const stop=()=>{clearTimeout(timer);img.onload=null;img.onerror=null;img.startArtwork=null;imageObserver?.unobserve(img);};
+    img.cancelArtwork=stop;
+    const fail=reason=>{stop();if(avatar.querySelector('img')!==img)return;img.remove();artwork.reject(t.mint,url,reason);};
+    img.onload=()=>{stop();if(avatar.querySelector('img')!==img)return;artwork.loaded(t.mint,url);status.textContent=artwork.status(t.mint);};
+    img.onerror=()=>fail('image_request_or_decode_failed');
+    img.startArtwork=()=>{if(!timer)timer=setTimeout(()=>fail('image_download_timeout'),6000);};
+    img.src=url;avatar.append(img);
+    if(imageObserver)imageObserver.observe(img);else img.startArtwork();
   }
 }
+const imageObserver=typeof IntersectionObserver==='function'?new IntersectionObserver(entries=>{
+  for(const entry of entries)if(entry.isIntersecting)entry.target.startArtwork?.();
+},{rootMargin:'300px'}):null;
 function tokenCard(t) {
   if(cards.has(t.mint))return cards.get(t.mint);
   const card=node('article','','token');card.dataset.mint=t.mint;
@@ -94,12 +104,11 @@ function tokenCard(t) {
   cards.set(t.mint,card);renderArtwork(card,t);
   return card;
 }
-const more=node('button','Show more','button small');more.onclick=()=>{pageSize+=60;renderLaunches();};$('retained').after(more);
 function renderLaunches() {
   renderTimer=null;
   const tokens=store.select({search:$('search').value,age:Number($('age').value),sort:$('sort').value});
   const activeMint=document.activeElement?.closest('.token')?.dataset.mint;
-  const rows=tokens.slice(0,pageSize).map(tokenCard);
+  const rows=tokens.map(tokenCard);
   if(!rows.length) {
     const empty=node('div','','empty');empty.append(node('div','◎','empty-icon'));
     empty.append(node('strong',store.items.length?'No matching launches':streamState==='connected'?'Listening for the next launch':'Launch feed is not connected yet'));
@@ -110,15 +119,14 @@ function renderLaunches() {
   // repeatedly cancelled slow/lazy image downloads.
   const wanted=new Set(rows);for(const child of [...$('tokens').children])if(!wanted.has(child))child.remove();
   rows.forEach((row,i)=>{if($('tokens').children[i]!==row)$('tokens').insertBefore(row,$('tokens').children[i]||null);});
-  const retained=new Set(store.items.map(t=>t.mint));for(const mint of cards.keys())if(!retained.has(mint))cards.delete(mint);
+  const retained=new Set(store.items.map(t=>t.mint));for(const mint of cards.keys())if(!retained.has(mint)){cards.get(mint).querySelector('img')?.cancelArtwork?.();cards.delete(mint);}
   if(activeMint)$('tokens').querySelector(`[data-mint="${activeMint}"] .contract`)?.focus({preventScroll:true});
   $('visible-count').textContent=`${tokens.length} tokens`;
   $('launch-total').textContent=store.total.toLocaleString();$('launch-minute').textContent=store.recentCount().toLocaleString();
-  more.classList.toggle('hidden',tokens.length<=pageSize);
-  $('retained').textContent=`Showing ${Math.min(tokens.length,pageSize)} of ${store.items.length} retained · max 1000`;
+  $('retained').textContent=`Showing ${tokens.length} of ${store.items.length} retained · max 1000`;
 }
 function scheduleRender(){if(renderTimer===null)renderTimer=setTimeout(renderLaunches,250);}
-for(const id of ['search','age','sort'])$(id).addEventListener(id==='search'?'input':'change',()=>{pageSize=60;renderLaunches();});
+for(const id of ['search','age','sort'])$(id).addEventListener(id==='search'?'input':'change',renderLaunches);
 
 const feed=new PumpLaunchFeed.Connection({
   onToken(message){
@@ -147,6 +155,7 @@ const feed=new PumpLaunchFeed.Connection({
 let connectedAt=0,lastRecovery=0;
 $('pause-feed').onclick=()=>{if(feed.stopped)feed.start();else feed.stop();};
 $('reconnect').onclick=()=>feed.reconnect();
+$('show-all').onclick=()=>{$('search').value='';$('age').value='0';$('sort').value='newest';if(feed.stopped)feed.start();renderLaunches();};
 $('retry-art').onclick=()=>artwork.retry();
 feed.start();renderLaunches();
 window.addEventListener('online',()=>{if(!feed.stopped)feed.reconnect();});
@@ -160,7 +169,7 @@ renderWhales();
 window.addEventListener('beforeunload',()=>feed.stop(false));
 setInterval(()=>{
   recoverStream();
-  for(const t of store.items.slice(0,pageSize))if(cards.has(t.mint))renderArtwork(cards.get(t.mint),t);
+  for(const t of store.items)if(cards.has(t.mint)&&cards.get(t.mint).isConnected)renderArtwork(cards.get(t.mint),t);
   document.querySelectorAll('.token-age').forEach(el=>el.textContent=age(Number(el.dataset.time)));
   $('launch-minute').textContent=store.recentCount().toLocaleString();
   $('feed-updated').textContent=lastEvent?'Last event '+age(lastEvent):'Awaiting first event';
@@ -244,5 +253,5 @@ async function refreshSections(){
   }
 }
 refreshSections();setInterval(refreshSections,3000);
-async function checkVersion(){try{const response=await fetch('/api/health',{cache:'no-store'}),data=await response.json();$('update-warning').classList.toggle('hidden',data.version>=4);$('app-version').textContent='Server v'+(data.version||'unknown');}catch(_){$('app-version').textContent='Server unavailable';}}
+async function checkVersion(){try{const response=await fetch('/api/health',{cache:'no-store'}),data=await response.json();$('update-warning').classList.toggle('hidden',data.version>=5);$('app-version').textContent='Server v'+(data.version||'unknown');}catch(_){$('app-version').textContent='Server unavailable';}}
 checkVersion();setInterval(checkVersion,30000);

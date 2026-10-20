@@ -10,7 +10,6 @@ const {chromium}=require('playwright');
    ws.onMessage(data=>assert.deepEqual(JSON.parse(data),{method:'subscribeNewToken'}));
  });
  await page.route('**/api/artwork?*',route=>route.fulfill({contentType:'application/json',body:'{"image":null}'}));
- await page.route('https://images.pump.fun/coin-image/**',route=>route.fulfill({status:404,body:'fixture has no artwork'}));
  await page.goto(process.env.DASHBOARD_URL||'http://127.0.0.1:8766');
  await page.getByText('Launch stream connected',{exact:true}).waitFor();
  assert.equal(await page.locator('#mode').textContent(),'Offline');

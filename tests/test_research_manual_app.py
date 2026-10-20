@@ -171,7 +171,7 @@ class DashboardControlTests(unittest.TestCase):
 
     def test_health_and_launchagent_configuration_do_not_start_live_trading(self):
         with urllib.request.urlopen(self.base+"/api/health") as response:
-            self.assertEqual(json.load(response), {"app": "signal-desk", "version": 4})
+            self.assertEqual(json.load(response), {"app": "signal-desk", "version": 5})
         config = plistlib.loads(plistlib.dumps(mac_app.agent_config(Path("/project with spaces"), Path("/python"))))
         self.assertTrue(config["KeepAlive"])
         self.assertIn("/project with spaces/dashboard.py", config["ProgramArguments"])
@@ -179,6 +179,30 @@ class DashboardControlTests(unittest.TestCase):
 
 
 class MacInstallerTests(unittest.TestCase):
+    def test_public_restart_failure_still_updates_and_opens_installed_local_dashboard(self):
+        from public_share import SetupError
+        with tempfile.TemporaryDirectory() as directory:
+            home=Path(directory);agents=home/'Library/LaunchAgents';agents.mkdir(parents=True)
+            (agents/'com.snorbingdep.signaldesk.share.plist').write_text('fixture')
+            (agents/(mac_app.LABEL+'.plist')).write_text('fixture')
+            with patch.object(mac_app.sys,'platform','darwin'),patch.object(Path,'home',return_value=home), \
+                 patch('public_share.main',side_effect=SetupError('Fixture tunnel unavailable')) as share, \
+                 patch('mac_app.subprocess.run',return_value=Mock(returncode=0)) as command, \
+                 patch('mac_app.health',return_value=True),patch('mac_app.webbrowser.open') as opened,patch('builtins.print'):
+                mac_app.main(['restart'])
+                share.assert_called_once_with(['restart','--no-browser'])
+                self.assertEqual(command.call_args.args[0][1],'kickstart')
+                opened.assert_called_once_with('http://127.0.0.1:8765')
+
+    def test_restart_refreshes_public_only_install_without_resetting_access(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home=Path(directory);sharing=home/'Library/LaunchAgents/com.snorbingdep.signaldesk.share.plist'
+            sharing.parent.mkdir(parents=True);sharing.write_text('fixture')
+            with patch.object(mac_app.sys,'platform','darwin'),patch.object(Path,'home',return_value=home), \
+                 patch('public_share.main') as share,patch('mac_app.subprocess.run') as command:
+                mac_app.main(['restart'])
+                share.assert_called_once_with(['restart']);command.assert_not_called()
+
     def test_installer_writes_user_app_and_supervises_dashboard_only(self):
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)

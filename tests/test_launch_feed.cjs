@@ -21,6 +21,12 @@ test('deduplicates tokens, bounds visible memory and counts bursts outside retai
   assert.equal(store.items.length,1);assert.equal(store.total,2);
   assert.equal(store.recentCount(5000),2);assert.equal(store.recentCount(65000),0);
 });
+test('duplicate creation enriches missing artwork metadata without another launch or a ticker change',()=>{
+  const store=new Store();store.add(creation,1000);
+  assert.equal(store.add({...creation,name:'Changed',uri:'ipfs://real-metadata',imageUrl:'https://assets.example/real.png'},2000),null);
+  assert.equal(store.total,1);assert.equal(store.items[0].name,'Example');
+  assert.equal(store.items[0].uri,'ipfs://real-metadata');assert.equal(store.items[0].image,'https://assets.example/real.png');
+});
 test('filters names and addresses, age and cap without inventing quotes',()=>{
   const store=new Store();store.add(creation,1000);
   store.add({...creation,mint:'11111111111111111111111111111111',name:'Second',marketCapSol:99},5000);
@@ -43,7 +49,7 @@ function fixture(){
   const sockets=[],statuses=[],tokens=[],timers=[];
   class Socket { constructor(url){this.url=url;this.sent=[];this.readyState=0;sockets.push(this);}send(x){this.sent.push(x);}close(){this.readyState=3;this.closed=true;this.onclose?.();} }
   const connection=new Connection({onToken:x=>tokens.push(x),onStatus:x=>statuses.push(x),WebSocketImpl:Socket,
-    setTimer:(fn,delay)=>{timers.push({fn,delay});return timers.length;},clearTimer:()=>{}});
+    setTimer:(fn,delay)=>{const timer={fn,delay};timers.push(timer);return timer;},clearTimer:timer=>{const i=timers.indexOf(timer);if(i>=0)timers.splice(i,1);}});
   return {connection,sockets,statuses,tokens,timers};
 }
 test('subscribes only to public new-token data, and a pause does not reconnect',()=>{
@@ -58,6 +64,14 @@ test('reconnect marks lost coverage and ignores events from the replaced socket'
   assert.equal(f.statuses.at(-1).state,'reconnecting');assert.equal(f.timers[0].delay,1000);
   f.timers[0].fn();f.sockets[1].onopen();assert.equal(f.statuses.at(-1).gap,true);
   old.onmessage({data:JSON.stringify(creation)});assert.equal(f.tokens.length,0);
+});
+test('a socket stuck connecting times out, closes and retries; pausing cancels its deadline',()=>{
+  const f=fixture();f.connection.start();assert.equal(f.timers[0].delay,15000);
+  const first=f.sockets[0];f.timers[0].fn();
+  assert.equal(first.closed,true);assert.equal(f.statuses.at(-1).state,'reconnecting');
+  assert.equal(f.timers[0].delay,1000);f.timers[0].fn();assert.equal(f.sockets.length,2);
+  first.onopen();assert.equal(first.sent.length,0);
+  f.connection.stop();assert.equal(f.timers.length,0);
 });
 test('provider rejection stops the stream without exposing raw provider content',()=>{
   const f=fixture();f.connection.start();f.sockets[0].onopen();

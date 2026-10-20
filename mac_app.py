@@ -29,7 +29,7 @@ def health():
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         with opener.open("http://127.0.0.1:8765/api/health", timeout=2) as response:
             data = json.load(response)
-        return data.get("app") == "signal-desk" and data.get("version") == 4
+        return data.get("app") == "signal-desk" and data.get("version") == 5
     except (OSError, ValueError):
         return False
 
@@ -43,6 +43,19 @@ def main(argv=None):
     domain = "gui/"+str(os.getuid())
     agent = Path.home()/"Library/LaunchAgents"/(LABEL+".plist")
     app = Path.home()/"Applications/Signal Desk.app"
+    share_error = None
+    if args.action == "restart":
+        from public_share import LABEL as SHARE_LABEL, SetupError, main as share_main
+        sharing = Path.home()/"Library/LaunchAgents"/(SHARE_LABEL+".plist")
+        if sharing.is_file():
+            try:
+                share_main(["restart", "--no-browser"] if agent.exists() else ["restart"])
+            except (RuntimeError, OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
+                share_error = str(exc) if isinstance(exc, SetupError) else "Check public sharing network/TLS access, private access-file permissions and .local/public-share-error.log."
+            if not agent.exists():
+                if share_error:
+                    raise SystemExit(share_error) from None
+                return
     if args.action == "stop":
         result = subprocess.run(["launchctl", "bootout", domain+"/"+LABEL], capture_output=True)
         print("Dashboard background service stopped." if result.returncode == 0 else "Dashboard service is not loaded.")
@@ -69,7 +82,7 @@ def main(argv=None):
         executable.write_text("#!/bin/bash\nexec "+shlex.quote(sys.executable)+" "+shlex.quote(str(ROOT/"mac_app.py"))+" open\n")
         executable.chmod(0o755)
         (app/"Contents/Info.plist").write_bytes(plistlib.dumps(dict(CFBundleIdentifier=LABEL, CFBundleName="Signal Desk",
-            CFBundleExecutable="SignalDesk", CFBundlePackageType="APPL", CFBundleVersion="4", LSUIElement=True)))
+            CFBundleExecutable="SignalDesk", CFBundlePackageType="APPL", CFBundleVersion="5", LSUIElement=True)))
         if loaded:
             subprocess.run(["launchctl", "bootout", domain+"/"+LABEL], check=True, capture_output=True)
         agent.write_bytes(plistlib.dumps(agent_config(ROOT, sys.executable)))
@@ -88,9 +101,11 @@ def main(argv=None):
     for _ in range(20):
         if health():
             from public_share import current_url
-            webbrowser.open(current_url() or "http://127.0.0.1:8765")
+            webbrowser.open((current_url() if not share_error else None) or "http://127.0.0.1:8765")
             print("Signal Desk is running in the background. You can close Terminal. Open ~/Applications/Signal Desk.app next time.")
             print("Keep this project folder in place. Only the dashboard is supervised; live trading is not started.")
+            if share_error:
+                print("The local dashboard was updated, but public sharing could not restart: "+share_error)
             return
         time.sleep(.5)
     raise SystemExit("Dashboard did not pass its health check. Inspect .local/dashboard-error.log. If macOS reports Operation not permitted, allow the Python app folder access in Privacy & Security. Stop any other server on port 8765 before restarting.")

@@ -103,7 +103,7 @@ class SharingTests(unittest.TestCase):
                     with self.assertRaises(urllib.error.HTTPError) as caught: opener.open(base+path)
                     self.assertEqual(caught.exception.code,401)
                 request=urllib.request.Request(base+'/api/health',headers={'Authorization':self.header,'Host':'test.trycloudflare.com'})
-                with opener.open(request) as response:self.assertEqual(json.load(response)['version'],4)
+                with opener.open(request) as response:self.assertEqual(json.load(response)['version'],5)
                 with patch('dashboard.manual_trading.prepare') as prepare:
                     request=urllib.request.Request(base+'/api/manual/prepare',data=b'{}',headers={'Authorization':self.header,'Host':'test.trycloudflare.com','Origin':'https://evil.example','Content-Type':'application/json'})
                     with self.assertRaises(urllib.error.HTTPError) as caught:opener.open(request)
@@ -193,7 +193,7 @@ class SharingTests(unittest.TestCase):
                 self.assertEqual(args[1],'bootstrap');calls.append('bootstrap')
                 self.assertFalse(public_access.load(path).check(self.header))
                 return Mock(returncode=0)
-            response=Mock();response.__enter__=Mock(return_value=io.BytesIO(b'{"app":"signal-desk","version":4}'));response.__exit__=Mock(return_value=False)
+            response=Mock();response.__enter__=Mock(return_value=io.BytesIO(b'{"app":"signal-desk","version":5}'));response.__exit__=Mock(return_value=False)
             with patch.object(public_share.sys,'platform','darwin'),patch.object(public_share,'ROOT',root), \
                  patch.object(Path,'home',return_value=home),patch('public_share.getpass.getpass',side_effect=[new,new]), \
                  patch('public_share.stop_for_restart',side_effect=stop),patch('public_share.verified_binary',return_value=Path('/fixture/cloudflared')), \
@@ -217,6 +217,34 @@ class SharingTests(unittest.TestCase):
                 with self.assertRaisesRegex(public_share.SetupError,'Could not stop'):public_share.main(['reset-password'])
                 binary.assert_not_called()
             self.assertEqual(path.read_bytes(),before)
+
+    def test_restart_preserves_password_and_does_not_prompt_for_it(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home=Path(directory);root=home/'project';root.mkdir();path=public_share.auth_file(home)
+            public_share.replace_password(path,public_access.password_config(self.password));before=path.read_bytes()
+            with patch.object(public_share.sys,'platform','darwin'),patch.object(public_share,'ROOT',root), \
+                 patch.object(Path,'home',return_value=home),patch('public_share.getpass.getpass') as prompt, \
+                 patch('public_share.stop_for_restart') as stop,patch('public_share.verified_binary',return_value=Path('/fixture/cloudflared')), \
+                 patch('public_share.subprocess.run',return_value=Mock(returncode=0)) as command, \
+                 patch('public_share.current_url',return_value='https://fresh-link.trycloudflare.com') as current, \
+                 patch('public_share.webbrowser.open') as opened,patch('builtins.print'):
+                public_share.main(['restart'])
+                prompt.assert_not_called();stop.assert_called_once()
+                opened.assert_called_once_with('https://fresh-link.trycloudflare.com')
+                self.assertEqual(current.call_args.kwargs['version'],5)
+                self.assertEqual(command.call_args.args[0][1],'bootstrap')
+            self.assertEqual(path.read_bytes(),before)
+            self.assertTrue(public_access.load(path).check(self.header))
+
+    def test_restart_ignores_ready_file_from_old_server_version(self):
+        with tempfile.TemporaryDirectory() as directory,patch.object(public_share,'ROOT',Path(directory)):
+            state=Path(directory)/'.local/public-share.json';state.parent.mkdir()
+            data={'pid':os.getpid(),'url':'https://fixture.trycloudflare.com','version':4,'created_at':100}
+            state.write_text(json.dumps(data))
+            self.assertIsNone(public_share.current_url(since=99,version=5))
+            data['version']=5;state.write_text(json.dumps(data))
+            self.assertEqual(public_share.current_url(since=99,version=5),data['url'])
+            self.assertIsNone(public_share.current_url(since=101,version=5))
 
 
 if __name__=='__main__':unittest.main()
