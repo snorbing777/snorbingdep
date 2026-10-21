@@ -1,0 +1,15 @@
+{
+  "name": "palestine-the-last-battle",
+  "version": "0.6.0",
+  "private": true,
+  "description": "Single-player browser shooter alpha",
+  "scripts": {
+    "test": "node tests/smoke.cjs",
+    "check": "node scripts/check.cjs",
+    "test:teams": "node tests/teams.cjs"
+  },
+  "devDependencies": {
+    "playwright": "1.62.1"
+  },
+  "type": "module"
+}

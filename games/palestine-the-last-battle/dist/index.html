@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width,initial-scale=1,maximum-scale=1"
+    />
+    <meta name="theme-color" content="#101620" />
+    <title>Palestine: The Last Battle</title>
+    <meta
+      name="description"
+      content="Palestine: The Last Battle: Police team, expanded weapon loadouts, physical star projectiles, and two original arenas."
+    />
+    <link rel="icon" href="icon.svg" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <canvas
+      id="world"
+      aria-label="Palestine: The Last Battle 3D game world"
+    ></canvas>
+    <div id="shade"></div>
+    <div id="loading">
+      <div class="mark">A<span>D</span></div>
+      <p>INITIALIZING RENDERER</p>
+      <small id="loadingText">Preparing environments and equipment…</small>
+    </div>
+    <div id="shell" class="hidden">
+      <header>
+        <button class="brand" data-page="play" aria-label="Main menu">
+          PALESTINE<span>THE LAST BATTLE</span
+          ><small>TACTICAL OPERATIONS</small>
+        </button>
+        <nav aria-label="Main menu">
+          <button data-page="play" class="active">PLAY</button
+          ><button data-page="loadout">LOADOUT</button
+          ><button data-page="settings">SETTINGS</button
+          ><button data-page="manual">FIELD MANUAL</button>
+        </nav>
+        <div class="build">
+          <i></i> LOCAL OPERATOR <small>ALPHA 0.6 / LOCAL SESSION</small>
+        </div>
+      </header>
+      <main id="play" class="page">
+        <div class="hero">
+          <div class="kicker">OPERATION 01 <span>/</span> SOLO EXTRACTION</div>
+          <h1>PALESTINE<span>THE LAST BATTLE</span></h1>
+          <p class="intro">
+            Choose your allegiance. Define your approach.<br />Survive five
+            waves and reach extraction.
+          </p>
+          <button id="chooseTeam" class="team-shortcut">
+            <kbd>N</kbd><span id="teamShortcutLabel">COUNTER-TERRORISTS</span
+            ><b>CHANGE TEAM &gt;</b>
+          </button>
+          <div class="section-label">01 <span>DEPLOYMENT ZONE</span></div>
+          <div id="maps" class="map-options"></div>
+          <div class="deploy-row">
+            <button id="deploy" class="primary">
+              DEPLOY TO SECTOR <span>&gt;</span></button
+            ><button class="secondary" data-page="loadout">EDIT LOADOUT</button>
+          </div>
+          <div class="footnote">
+            <span>◈ SINGLE PLAYER</span><span>5 WAVES + EXTRACTION</span>
+          </div>
+        </div>
+        <div class="operator-panel">
+          <div class="section-label">
+            02 <span id="activeTeamLabel">COUNTER-TERRORISTS / BLUE TEAM</span>
+          </div>
+          <h2 id="operatorName">POLICE 01</h2>
+          <div id="operatorRole" class="muted"></div>
+          <div class="operator-tabs" id="operators"></div>
+          <p id="operatorDesc"></p>
+          <div class="operator-stats">
+            <span>VITALITY <b id="opHp">100</b></span
+            ><span>MOBILITY <b id="opSpeed">BALANCED</b></span>
+          </div>
+        </div>
+      </main>
+      <main id="loadout" class="page hidden">
+        <div class="armory-left">
+          <div class="kicker">
+            <span id="armoryLabel">COUNTER-TERRORIST ARMORY</span>
+            <span>/</span> EQUIPMENT BAY
+          </div>
+          <h1>YOUR LOADOUT.</h1>
+          <p class="intro">
+            3 SMGs · 4 assault rifles · AWP precision platforms. Equip two.
+          </p>
+          <div class="slots">
+            <button data-slot="0" class="active">
+              <small>01 / PRIMARY</small><b id="primaryName"></b></button
+            ><button data-slot="1">
+              <small>02 / SECONDARY</small><b id="secondaryName"></b>
+            </button>
+          </div>
+          <div class="section-label"><span>AVAILABLE WEAPONS</span></div>
+          <div class="weapon-filters" aria-label="Weapon category">
+            <button data-category="all" class="active">ALL</button
+            ><button data-category="smg">SMG · 3</button
+            ><button data-category="ar">AR · 4</button
+            ><button data-category="sniper">SNIPER</button
+            ><button data-category="other">OTHER</button>
+          </div>
+          <div id="weaponList"></div>
+        </div>
+        <div class="weapon-detail">
+          <div class="kicker" id="weaponType"></div>
+          <h2 id="weaponTitle"></h2>
+          <p id="weaponDescription"></p>
+          <div id="weaponStats" class="weapon-stats"></div>
+          <div class="ammo-type">
+            <svg viewBox="0 0 40 40" aria-hidden="true">
+              <path d="M20 3 35 29H5ZM20 37 5 11h30Z" /></svg
+            ><span>STAR OF DAVID PROJECTILES</span>
+          </div>
+          <button id="equip" class="primary">
+            EQUIP PRIMARY <span>＋</span>
+          </button>
+          <div class="footnote">
+            1 / 2 or Q to switch · Each faction has its own AWP.
+          </div>
+        </div>
+      </main>
+      <main id="settings" class="page hidden">
+        <div class="settings-panel">
+          <div class="kicker">SYSTEM CONFIGURATION</div>
+          <div class="heading-row">
+            <h1>SETTINGS.</h1>
+            <button id="settingsBack" class="text-button">← BACK</button>
+          </div>
+          <p class="intro">
+            Tune the experience. Changes save automatically on this device.
+          </p>
+          <div class="settings-tabs">
+            <button data-settings-tab="display" class="active">DISPLAY</button
+            ><button data-settings-tab="audio">AUDIO</button
+            ><button data-settings-tab="gameplay">GAMEPLAY</button>
+          </div>
+          <div id="settingsControls"></div>
+          <div class="settings-footer">
+            <span id="savedStatus">ALL CHANGES SAVED LOCALLY</span
+            ><button id="resetSettings" class="text-button">
+              RESTORE DEFAULTS
+            </button>
+          </div>
+        </div>
+      </main>
+      <main id="manual" class="page hidden">
+        <div class="manual-panel">
+          <div class="kicker">OPERATOR BRIEFING</div>
+          <h1>KNOW YOUR TOOLS.</h1>
+          <p class="intro">
+            Clear five waves, then return to the blue landing beacon to
+            extract.<br />Shots launch physical, spinning six-pointed stars.
+            Repair packs restore 35 vitality. Armor and magazines refresh
+            between waves.
+          </p>
+          <div class="red-roster">
+            <h3>RED TEAM / TERRORISTS</h3>
+            <p>
+              <b>VESPER</b> · Charcoal suit, glasses, copper tie.<br /><b
+                >ROOK</b
+              >
+              · Navy suit, dark curls, blue-gray tie.
+            </p>
+          </div>
+          <div class="manual-grid">
+            <div>
+              <h3>MOVEMENT</h3>
+              <p><kbd>W A S D</kbd> Move</p>
+              <p><kbd>MOUSE</kbd> Look around</p>
+              <p><kbd>SHIFT</kbd> Sprint</p>
+              <p><kbd>SPACE</kbd> Jump / double jump</p>
+              <p><kbd>E</kbd> Directional boost</p>
+            </div>
+            <div>
+              <h3>COMBAT</h3>
+              <p><kbd>LEFT CLICK</kbd> Fire</p>
+              <p><kbd>RIGHT CLICK</kbd> Aim down sights</p>
+              <p><kbd>R</kbd> Reload</p>
+              <p><kbd>1 / 2 · Q</kbd> Switch weapon</p>
+              <p><kbd>G</kbd> Pulse blast</p>
+            </div>
+            <div>
+              <h3>SYSTEM</h3>
+              <p><kbd>ESC / P</kbd> Pause / resume</p>
+              <p><kbd>N</kbd> Select team</p>
+              <p><kbd>F</kbd> Toggle fullscreen</p>
+              <p><kbd>← / →</kbd> Turn without mouse capture</p>
+              <p class="muted">
+                On touch screens: move with the left pad, drag the view to aim,
+                and use the action buttons. Landscape recommended.
+              </p>
+            </div>
+          </div>
+          <button data-page="play" class="primary">
+            READY TO DEPLOY <span>→</span>
+          </button>
+        </div>
+      </main>
+      <footer>
+        <span
+          >Palestine: The Last Battle <b>/</b> ORIGINAL WORLDS. TACTICAL
+          COMBAT.</span
+        ><span id="footerStatus">ALL SYSTEMS ONLINE</span
+        ><button id="menuFull" class="text-button">FULLSCREEN</button>
+      </footer>
+    </div>
+    <div id="pauseScreen" class="hidden">
+      <div class="pause-card">
+        <div class="kicker" id="pauseKicker">MISSION ON HOLD</div>
+        <h1 id="pauseTitle">PAUSED.</h1>
+        <p id="pauseSummary"></p>
+        <button id="resume" class="primary">
+          RESUME OPERATION <span>→</span></button
+        ><button id="pauseSettings" class="secondary">SETTINGS</button
+        ><button id="pauseTeam" class="secondary">[N] SELECT TEAM</button
+        ><button id="returnMenu" class="text-button">
+          RETURN TO MAIN MENU
+        </button>
+      </div>
+    </div>
+    <div
+      id="teamDialog"
+      class="hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="teamTitle"
+    >
+      <div class="team-dialog-card">
+        <div class="kicker">FACTION SELECTION / PRESS N TO CLOSE</div>
+        <h2 id="teamTitle">CHOOSE YOUR SIDE.</h2>
+        <p class="team-dialog-intro">
+          A different roster. A different arsenal. The same objective.
+        </p>
+        <div class="team-options">
+          <button data-team-option="police" class="team-option ct">
+            <span class="team-insignia">CT</span
+            ><small>BLUE FACTION / POLICE</small
+            ><strong>COUNTER-<br />TERRORISTS</strong>
+            <p>Police 01 · Police 02</p>
+            <span class="team-weapon">AWP FROST</span></button
+          ><button data-team-option="opposition" class="team-option red">
+            <span class="team-insignia">T</span><small>RED FACTION</small
+            ><strong>TERRORISTS</strong>
+            <p>Vesper · Rook</p>
+            <span class="team-weapon">AWP OBSIDIAN</span>
+          </button>
+        </div>
+        <p id="teamDialogNote"></p>
+        <div class="team-dialog-actions">
+          <button id="cancelTeam" class="secondary">CANCEL</button
+          ><button id="confirmTeam" class="primary">CONFIRM TEAM</button>
+        </div>
+      </div>
+    </div>
+    <div id="hud" class="hidden">
+      <div class="mission">
+        <div id="zone"></div>
+        <b id="wave"></b><small id="remaining"></small>
+      </div>
+      <div class="hud-top">
+        <span id="fps"></span
+        ><button id="hudTeamButton">
+          [N] <span id="hudTeam">COUNTER-TERRORISTS</span></button
+        ><button id="pauseBtn">II PAUSE</button>
+      </div>
+      <div class="notice" id="notice"><b></b><small></small></div>
+      <div id="scope" class="hidden"><i></i></div>
+      <div id="crosshair"><i></i><i></i><i></i><i></i></div>
+      <div id="hitmarker">×</div>
+      <div id="damage"></div>
+      <div class="hud-bottom">
+        <div class="vitals">
+          <small id="opName"></small
+          ><strong><span>＋</span><b id="hp"></b></strong>
+          <div class="health-bar"><i id="hpBar"></i></div>
+          <div class="abilities">
+            <span>[E] BOOST <b id="boost"></b></span
+            ><span>[G] PULSE <b id="pulse"></b></span>
+          </div>
+        </div>
+        <div class="weapon-hud">
+          <small id="gunName"></small>
+          <div><strong id="ammo"></strong><span id="reserve"></span></div>
+          <p id="score"></p>
+        </div>
+      </div>
+    </div>
+    <div id="touch" class="hidden">
+      <div id="stick"><i></i></div>
+      <div class="touch-actions">
+        <button data-action="fire">FIRE</button
+        ><button data-action="aim">AIM</button
+        ><button data-action="boost">BOOST</button
+        ><button data-action="jump">JUMP</button
+        ><button data-action="reload">RELOAD</button
+        ><button data-action="bomb">PULSE</button
+        ><button data-action="swap">SWAP</button>
+      </div>
+    </div>
+    <script type="module" src="ui.js"></script>
+  </body>
+</html>
